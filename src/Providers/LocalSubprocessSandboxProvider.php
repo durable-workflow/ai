@@ -7,7 +7,7 @@ namespace DurableWorkflow\AI\Providers;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
 use DurableWorkflow\AI\Exceptions\SandboxConfigurationException;
 use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\SandboxProvisionException;
@@ -29,7 +29,7 @@ use Throwable;
  * convenient local infrastructure, not a security isolation boundary, and must
  * not be used to execute untrusted code.
  */
-final class LocalSubprocessSandboxProvider implements SandboxProvider
+final class LocalSubprocessSandboxProvider implements SnapshotDeletingSandboxProvider
 {
     private const MAXIMUM_LEASE_SECONDS = 3600;
 

@@ -7,6 +7,8 @@ namespace DurableWorkflow\AI\Tests\Unit;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
+use DurableWorkflow\AI\Contracts\V1\SandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
 use DurableWorkflow\AI\Exceptions\UnsupportedSandboxCapabilityException;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxOperationId;
@@ -16,6 +18,30 @@ use PHPUnit\Framework\TestCase;
 
 final class PublicContractTest extends TestCase
 {
+    public function test_snapshot_deletion_is_a_machine_readable_extension_of_the_unchanged_v1_boundary(): void
+    {
+        $base = new \ReflectionClass(SandboxProvider::class);
+        $extension = new \ReflectionClass(SnapshotDeletingSandboxProvider::class);
+
+        $this->assertFalse($base->hasMethod('deleteSnapshot'));
+        $this->assertTrue($extension->hasMethod('deleteSnapshot'));
+        $this->assertTrue($extension->isSubclassOf(SandboxProvider::class));
+
+        /** @var array{extra: array{durable-workflow: array{contracts: array<string, string>}}} $composer */
+        $composer = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 2).'/composer.json'),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $contracts = $composer['extra']['durable-workflow']['contracts'];
+
+        $this->assertSame(ProviderCapabilities::CONTRACT_VERSION, $contracts['sandbox-provider']);
+        $this->assertSame(
+            SnapshotDeletingSandboxProvider::CONTRACT_VERSION,
+            $contracts[SnapshotDeletingSandboxProvider::CONTRACT_NAME],
+        );
+    }
+
     public function test_versioned_capabilities_are_machine_readable_and_unsupported_operations_fail_clearly(): void
     {
         $capabilities = new ProviderCapabilities(

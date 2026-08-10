@@ -7,13 +7,13 @@ of application-specific workflow code.
 
 ## Install
 
-The current release is `2.0.0-rc.6`, aligned with the Durable Workflow 2.0
+The current release is `2.0.0-rc.7`, aligned with the Durable Workflow 2.0
 prerelease train. While the Durable Workflow 2.0 packages are prereleases,
 require both packages with explicit RC stability flags in the same Composer
 invocation:
 
 ```bash
-composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.6@RC
+composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.7@RC
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 
@@ -74,6 +74,11 @@ restore, snapshot deletion, suspend, resume, operation deduplication, lease
 reconciliation, cleanup, and delivery guarantees are explicit. Calling an
 unsupported lifecycle method throws `UnsupportedSandboxCapabilityException`; it
 never silently succeeds.
+
+The base `DurableWorkflow\AI\Contracts\V1\SandboxProvider` interface retains
+its original 1.0 method boundary. Providers that advertise snapshot deletion
+also implement the versioned
+`DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider` extension.
 
 See [delivery and recovery guarantees](docs/delivery-and-recovery.md) for the
 failure contract and [the provider-author guide](docs/provider-author-guide.md)

@@ -7,13 +7,13 @@ namespace DurableWorkflow\AI\Tests\Fakes;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxToolCall;
 use DurableWorkflow\AI\SandboxToolResult;
 use Throwable;
 
-final class StubSandboxProvider implements SandboxProvider
+final class StubSandboxProvider implements SnapshotDeletingSandboxProvider
 {
     /** @var list<string> */
     public array $destroyed = [];

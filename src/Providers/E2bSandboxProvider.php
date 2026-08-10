@@ -7,7 +7,7 @@ namespace DurableWorkflow\AI\Providers;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
 use DurableWorkflow\AI\Exceptions\PermanentSandboxProvisionException;
 use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\SandboxProvisionException;
@@ -25,7 +25,7 @@ use RuntimeException;
  * filesystem, and Connect process HTTP APIs. E2B publishes official JavaScript
  * and Python SDKs; this PHP adapter intentionally uses those HTTP contracts.
  */
-final class E2bSandboxProvider implements SandboxProvider
+final class E2bSandboxProvider implements SnapshotDeletingSandboxProvider
 {
     private const ENVD_PORT = 49983;
 

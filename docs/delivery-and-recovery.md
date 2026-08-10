@@ -74,10 +74,12 @@ workflow later fails. On success its ID is returned as `latest_snapshot`.
 
 Every provider used by `SandboxManager` must declare both idempotent destroy and
 lease reconciliation. Providers that create workflow checkpoints must also
-declare snapshot deletion and implement it idempotently. Provision, restore,
-resume, snapshot, and dispatch renew a bounded lease. Normal finalization retries
-idempotent destroy three times. If all destroy attempts fail, provider-side TTL
-remains the hard upper bound on a paid resource's lifetime.
+declare snapshot deletion, implement the versioned
+`SnapshotDeletingSandboxProvider` extension, and delete idempotently. Provision,
+restore, resume, snapshot, and dispatch renew a bounded lease. Normal
+finalization retries idempotent destroy three times. If all destroy attempts
+fail, provider-side TTL remains the hard upper bound on a paid resource's
+lifetime.
 
 The local development provider records leases and reconciles expired workspaces
 when it next starts or provisions, and deletes snapshot archives explicitly.

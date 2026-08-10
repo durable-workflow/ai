@@ -6,6 +6,7 @@ namespace DurableWorkflow\AI\Laravel;
 
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
 use DurableWorkflow\AI\Contracts\V1\SandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
 use DurableWorkflow\AI\Exceptions\SandboxConfigurationException;
 use DurableWorkflow\AI\Providers\E2bSandboxProvider;
 use DurableWorkflow\AI\Providers\LocalSubprocessSandboxProvider;
@@ -68,6 +69,13 @@ final class SandboxManager
             }
 
             $capabilities->require(SandboxCapability::LeaseReconciliation, $name);
+
+            if ($capabilities->supports(SandboxCapability::SnapshotDeletion)
+                !== ($provider instanceof SnapshotDeletingSandboxProvider)) {
+                throw new SandboxConfigurationException(
+                    "Sandbox provider [{$name}] must advertise [snapshot_deletion] exactly when it implements [".SnapshotDeletingSandboxProvider::class.']',
+                );
+            }
         } catch (SandboxConfigurationException $exception) {
             throw $exception;
         } catch (Throwable $exception) {

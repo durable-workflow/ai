@@ -1,19 +1,22 @@
 # Provider author guide
 
-Provider integrations implement the versioned
-`DurableWorkflow\AI\Contracts\V1\SandboxProvider` interface. Register a factory
-with `SandboxManager::extend()`; workflows and activities should never resolve a
+Provider integrations implement the versioned base
+`DurableWorkflow\AI\Contracts\V1\SandboxProvider` interface. Snapshot deletion
+is an additive contract: providers that support it implement
+`DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider`, which
+extends the unchanged base interface. Register a factory with
+`SandboxManager::extend()`; workflows and activities should never resolve a
 concrete adapter directly.
 
 ```php
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
 use DurableWorkflow\AI\Laravel\SandboxManager;
 
 $this->app->afterResolving(SandboxManager::class, function (SandboxManager $manager): void {
-    $manager->extend('acme', static fn ($app, array $config): SandboxProvider => new AcmeProvider(
+    $manager->extend('acme', static fn ($app, array $config): SnapshotDeletingSandboxProvider => new AcmeProvider(
         token: (string) $config['token'],
     ));
 });
@@ -60,11 +63,14 @@ Snapshot and restore must survive worker restarts. Restoring a snapshot must
 create a sandbox capable of receiving the completed post-snapshot journal,
 including calls with nonzero exit codes, and reproducing their recorded
 outcomes. A provider used for workflow checkpointing must expose
-`SnapshotDeletion` and implement `deleteSnapshot()` idempotently: an already
-deleted or unknown ID succeeds, while transient control-plane failures throw so
-the cleanup activity retries. A provider that lacks checkpoint support leaves
-snapshot, restore, and snapshot deletion out; calls then fail before the
-unsupported provider method runs.
+`SnapshotDeletion`, implement `SnapshotDeletingSandboxProvider`, and make
+`deleteSnapshot()` idempotent: an already deleted or unknown ID succeeds, while
+transient control-plane failures throw so the cleanup activity retries. The
+base `SandboxProvider` contract remains at version 1.0, and the deletion
+extension has its own `sandbox-provider.snapshot-deletion` 1.0 metadata entry.
+A provider built against the original base contract continues to load; when it
+leaves snapshot deletion out, a checkpoint request fails at capability
+negotiation before an unsupported method is called.
 
 Suspend and resume are separate capabilities. Do not implement an unsupported
 operation as a no-op. Throw `UnsupportedSandboxCapabilityException`, normally by

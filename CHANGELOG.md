@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-rc.7
+
+- Restore the original V1 sandbox provider method boundary and expose snapshot
+  deletion through a separately versioned, capability-gated extension.
+
 ## 2.0.0-rc.6
 
 - Recover confirmed sandbox loss while suspending or resuming by reconstructing

@@ -23,7 +23,7 @@ echo json_encode([
     "url" => $argv[1],
     "options" => [
         "symlink" => false,
-        "versions" => ["durable-workflow/ai" => "2.0.0-rc.6"],
+        "versions" => ["durable-workflow/ai" => "2.0.0-rc.7"],
     ],
 ], JSON_THROW_ON_ERROR);
 ' "$package_root")
@@ -40,7 +40,7 @@ composer require \
     --no-progress \
     --no-audit \
     'durable-workflow/workflow:^2.0@RC' \
-    'durable-workflow/ai:2.0.0-rc.6@RC'
+    'durable-workflow/ai:2.0.0-rc.7@RC'
 
 php -r '
 function fail(string $message): never
@@ -65,8 +65,8 @@ foreach ($lock["packages"] ?? [] as $package) {
 $ai = $packages["durable-workflow/ai"] ?? null;
 $workflow = $packages["durable-workflow/workflow"] ?? null;
 
-if (($ai["version"] ?? null) !== "2.0.0-rc.6") {
-    fail("Composer did not resolve durable-workflow/ai 2.0.0-rc.6.");
+if (($ai["version"] ?? null) !== "2.0.0-rc.7") {
+    fail("Composer did not resolve durable-workflow/ai 2.0.0-rc.7.");
 }
 
 if (($ai["dist"]["type"] ?? null) !== "path"

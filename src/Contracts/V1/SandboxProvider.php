@@ -11,9 +11,8 @@ use DurableWorkflow\AI\SandboxToolResult;
 /**
  * Version 1 of the public provider contract.
  *
- * deleteSnapshot() and destroy() must be idempotent. renewLease() must arrange
- * provider-side expiry, not merely update process-local state, so failed
- * finalizers remain bounded.
+ * destroy() must be idempotent. renewLease() must arrange provider-side expiry,
+ * not merely update process-local state, so failed finalizers remain bounded.
  */
 interface SandboxProvider
 {
@@ -33,8 +32,6 @@ interface SandboxProvider
     public function resume(SandboxHandle $handle): SandboxHandle;
 
     public function snapshot(SandboxHandle $handle): string;
-
-    public function deleteSnapshot(string $snapshotId): void;
 
     public function restore(string $snapshotId): SandboxHandle;
 
