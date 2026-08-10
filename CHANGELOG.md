@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-rc.5
+
+- Document and verify the explicit Durable Workflow prerelease requirement for
+  Composer roots that keep the default `stable` minimum stability.
+
 ## 2.0.0-rc.4
 
 - Return a missing E2B file as a failed tool result without starting sandbox

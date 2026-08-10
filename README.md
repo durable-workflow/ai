@@ -7,13 +7,22 @@ of application-specific workflow code.
 
 ## Install
 
-The current release is `2.0.0-rc.4`, aligned with the Durable Workflow 2.0
-prerelease train:
+The current release is `2.0.0-rc.5`, aligned with the Durable Workflow 2.0
+prerelease train. While the Durable Workflow 2.0 packages are prereleases,
+require both packages with explicit RC stability flags in the same Composer
+invocation:
 
 ```bash
-composer require durable-workflow/ai:2.0.0-rc.4@RC
+composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.5@RC
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
+
+Composer applies stability flags only to packages required by the root project,
+so the prerelease runtime must be listed explicitly.
+
+This two-package command is only needed for the prerelease. Once stable 2.0 is
+available, installation will return to the ordinary one-package command:
+`composer require durable-workflow/ai`.
 
 Laravel discovers `DurableWorkflow\AI\Laravel\SandboxServiceProvider`
 automatically. The package requires Laravel 12 or later and the Durable Workflow
