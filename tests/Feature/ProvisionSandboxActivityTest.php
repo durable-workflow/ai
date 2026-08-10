@@ -7,12 +7,14 @@ namespace DurableWorkflow\AI\Tests\Feature;
 use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
+use DurableWorkflow\AI\Exceptions\SandboxConfigurationException;
 use DurableWorkflow\AI\Exceptions\SandboxProvisionException;
 use DurableWorkflow\AI\Laravel\SandboxManager;
 use DurableWorkflow\AI\Tests\Fakes\StubSandboxProvider;
 use DurableWorkflow\AI\Tests\TestCase;
 use Illuminate\Http\Client\Factory;
 use InvalidArgumentException;
+use RuntimeException;
 use Workflow\Exceptions\NonRetryableException;
 use Workflow\V2\Models\ActivityExecution;
 use Workflow\V2\Models\WorkflowRun;
@@ -127,6 +129,29 @@ final class ProvisionSandboxActivityTest extends TestCase
         $this->expectException(NonRetryableException::class);
         $this->expectExceptionMessage('capability configuration is invalid');
         $this->activity()->handle('invalid-capabilities');
+    }
+
+    public function test_provider_handle_name_mismatch_is_cleaned_up_and_nonretryable(): void
+    {
+        $provider = new StubSandboxProvider(
+            providerName: 'selected',
+            destroyFailure: new RuntimeException('mismatched handle cleanup failed'),
+            handleProvider: 'other',
+        );
+        $this->extendManager('selected', $provider);
+
+        try {
+            $this->activity()->handle('selected');
+            $this->fail('Expected a mismatched provider handle to fail provisioning.');
+        } catch (NonRetryableException $exception) {
+            $this->assertStringContainsString(
+                'Sandbox provider [selected] returned a handle for provider [other]',
+                $exception->getMessage(),
+            );
+            $this->assertInstanceOf(SandboxConfigurationException::class, $exception->getPrevious());
+        }
+
+        $this->assertSame(['provisioned'], $provider->destroyed);
     }
 
     private function configureE2b(string $apiKey = 'e2b-test-key'): void

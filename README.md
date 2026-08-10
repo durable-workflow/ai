@@ -8,8 +8,7 @@ of application-specific workflow code.
 ## Install
 
 The first release target is `2.0.0-rc.1`, aligned with the Durable Workflow 2.0
-prerelease train. The following command becomes usable only after that tag is
-published to Packagist:
+prerelease train:
 
 ```bash
 composer require durable-workflow/ai:2.0.0-rc.1@RC
@@ -17,7 +16,8 @@ php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 
 Laravel discovers `DurableWorkflow\AI\Laravel\SandboxServiceProvider`
-automatically. The package requires the Durable Workflow v2 runtime.
+automatically. The package requires Laravel 12 or later and the Durable Workflow
+v2 runtime.
 
 ## Run a sandbox workflow
 

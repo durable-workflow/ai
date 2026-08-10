@@ -13,6 +13,7 @@ use DurableWorkflow\AI\Activities\SnapshotSandboxActivity;
 use DurableWorkflow\AI\Activities\SuspendSandboxActivity;
 use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\SandboxRecoveryException;
+use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxOperationId;
 use InvalidArgumentException;
 use Throwable;
@@ -46,6 +47,7 @@ final class SandboxAgentWorkflow extends Workflow
     ): array {
         $preparedCalls = $this->prepareCalls($toolCalls);
         $handle = activity(ProvisionSandboxActivity::class, $provider, $options);
+        $providerName = SandboxHandle::fromArray($handle)->provider;
         $results = [];
         $completedSinceSnapshot = [];
         $latestSnapshot = null;
@@ -66,7 +68,7 @@ final class SandboxAgentWorkflow extends Workflow
 
                     [$handle, $recoveryCount] = $this->recoverAndReconstruct(
                         $latestSnapshot,
-                        $provider,
+                        $providerName,
                         $options,
                         $completedSinceSnapshot,
                         $recoveryCount,
@@ -148,7 +150,7 @@ final class SandboxAgentWorkflow extends Workflow
      */
     private function recoverAndReconstruct(
         ?string $latestSnapshot,
-        ?string $provider,
+        string $provider,
         array $options,
         array $completedSinceSnapshot,
         int $recoveryCount,

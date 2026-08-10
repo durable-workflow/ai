@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DurableWorkflow\AI\Tests\Feature;
 
 use DurableWorkflow\AI\Activities\RestoreSandboxActivity;
+use DurableWorkflow\AI\Exceptions\SandboxConfigurationException;
 use DurableWorkflow\AI\Laravel\SandboxManager;
 use DurableWorkflow\AI\Tests\Fakes\StubSandboxProvider;
 use DurableWorkflow\AI\Tests\TestCase;
@@ -31,6 +32,32 @@ final class RestoreSandboxActivityTest extends TestCase
             $this->fail('Expected initial lease renewal to fail.');
         } catch (RuntimeException $exception) {
             $this->assertSame('initial lease renewal failed', $exception->getMessage());
+        }
+
+        $this->assertSame(['restored'], $provider->destroyed);
+    }
+
+    public function test_provider_handle_name_mismatch_is_cleaned_up_and_nonretryable(): void
+    {
+        $provider = new StubSandboxProvider(
+            providerName: 'selected',
+            destroyFailure: new RuntimeException('mismatched handle cleanup failed'),
+            handleProvider: 'other',
+        );
+        $this->app->make(SandboxManager::class)->extend(
+            'selected',
+            static fn ($container, array $config): StubSandboxProvider => $provider,
+        );
+        $activity = new RestoreSandboxActivity(new ActivityExecution, new WorkflowRun);
+
+        try {
+            $activity->handle('snapshot-1', 'selected');
+            $this->fail('Expected a mismatched provider handle to fail restoration.');
+        } catch (SandboxConfigurationException $exception) {
+            $this->assertStringContainsString(
+                'Sandbox provider [selected] returned a handle for provider [other]',
+                $exception->getMessage(),
+            );
         }
 
         $this->assertSame(['restored'], $provider->destroyed);

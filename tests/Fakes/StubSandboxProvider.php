@@ -24,6 +24,7 @@ final class StubSandboxProvider implements SandboxProvider
         private readonly ?Throwable $capabilitiesFailure = null,
         private readonly ?Throwable $renewLeaseFailure = null,
         private readonly ?Throwable $destroyFailure = null,
+        private readonly ?string $handleProvider = null,
     ) {}
 
     public function name(): string
@@ -51,7 +52,7 @@ final class StubSandboxProvider implements SandboxProvider
 
     public function provision(array $options = []): SandboxHandle
     {
-        return new SandboxHandle('provisioned', $this->providerName);
+        return new SandboxHandle('provisioned', $this->handleProvider ?? $this->providerName);
     }
 
     public function execute(SandboxHandle $handle, SandboxToolCall $call): SandboxToolResult
@@ -76,7 +77,7 @@ final class StubSandboxProvider implements SandboxProvider
 
     public function restore(string $snapshotId): SandboxHandle
     {
-        return new SandboxHandle('restored', $this->providerName);
+        return new SandboxHandle('restored', $this->handleProvider ?? $this->providerName);
     }
 
     public function renewLease(SandboxHandle $handle, int $ttlSeconds): SandboxHandle

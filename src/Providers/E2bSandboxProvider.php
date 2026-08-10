@@ -221,24 +221,44 @@ final class E2bSandboxProvider implements SandboxProvider
             return new SandboxToolResult(1, stderr: 'shell tool requires a command argument');
         }
 
+        $environment = $call->args['env'] ?? [];
+
+        if (! is_array($environment)) {
+            return new SandboxToolResult(1, stderr: 'shell tool env argument must be a string map');
+        }
+
+        foreach ($environment as $key => $value) {
+            if (! is_string($key) || ! is_string($value)) {
+                return new SandboxToolResult(1, stderr: 'shell tool env argument must be a string map');
+            }
+        }
+
+        $startRequest = [
+            'process' => [
+                'cmd' => '/bin/bash',
+                'args' => ['-lc', $command],
+                'cwd' => (string) ($call->args['cwd'] ?? '/home/user'),
+            ],
+            'tag' => $call->operationId,
+            'stdin' => false,
+        ];
+
+        if ($environment !== []) {
+            $startRequest['process']['envs'] = $environment;
+        }
+
+        $payload = json_encode($startRequest, JSON_THROW_ON_ERROR);
+        $requestEnvelope = chr(0).pack('N', strlen($payload)).$payload;
+
         $response = $this->sandboxClient($handle, $accessToken)
             ->withHeaders([
                 'Authorization' => 'Basic '.base64_encode(
                     (string) ($call->args['user'] ?? 'user').':',
                 ),
                 'Connect-Protocol-Version' => '1',
-                'Content-Type' => 'application/connect+json',
             ])
-            ->post('/process.Process/Start', [
-                'process' => [
-                    'cmd' => '/bin/bash',
-                    'args' => ['-lc', $command],
-                    'envs' => is_array($call->args['env'] ?? null) ? $call->args['env'] : [],
-                    'cwd' => (string) ($call->args['cwd'] ?? '/home/user'),
-                ],
-                'tag' => $call->operationId,
-                'stdin' => false,
-            ]);
+            ->withBody($requestEnvelope, 'application/connect+json')
+            ->post('/process.Process/Start');
 
         $this->requireSuccessful($response, $handle, 'execute command');
 

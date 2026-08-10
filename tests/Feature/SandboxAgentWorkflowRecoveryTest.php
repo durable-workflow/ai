@@ -99,6 +99,73 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
         $this->assertSame($deliveries[0], $output['tool_results'][0]['operation_id']);
     }
 
+    public function test_recovery_keeps_the_initial_provider_after_the_default_driver_changes(): void
+    {
+        WorkflowStub::fake();
+        $defaultProvider = 'provider-before-config-change';
+        $provisionProviders = [];
+        $restoreProviders = [];
+        $lostBeforeSnapshot = false;
+        $lostAfterSnapshot = false;
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, function ($context, ?string $provider) use (&$defaultProvider, &$provisionProviders): array {
+            $selectedProvider = $provider ?? $defaultProvider;
+            $provisionProviders[] = $selectedProvider;
+
+            if (count($provisionProviders) === 1) {
+                $defaultProvider = 'provider-after-config-change';
+
+                return $this->handle('original', $selectedProvider);
+            }
+
+            return $this->handle('replacement', $selectedProvider);
+        });
+        WorkflowStub::mock(SnapshotSandboxActivity::class, 'snapshot-1');
+        WorkflowStub::mock(RestoreSandboxActivity::class, function ($context, string $snapshotId, ?string $provider) use (&$defaultProvider, &$restoreProviders): array {
+            $selectedProvider = $provider ?? $defaultProvider;
+            $restoreProviders[] = [$snapshotId, $selectedProvider];
+
+            return $this->handle('restored', $selectedProvider);
+        });
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$lostBeforeSnapshot, &$lostAfterSnapshot): array {
+            $command = $call['args']['command'];
+
+            if ($handle['id'] === 'original' && ! $lostBeforeSnapshot) {
+                $lostBeforeSnapshot = true;
+                throw new SandboxGoneException('lost before the first snapshot');
+            }
+
+            if ($handle['id'] === 'replacement' && $command === 'after-snapshot' && ! $lostAfterSnapshot) {
+                $lostAfterSnapshot = true;
+                throw new SandboxGoneException('lost after the first snapshot');
+            }
+
+            return ['exit_code' => 0, 'stdout' => $command, 'stderr' => ''];
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start(array_map(
+            static fn (string $command): array => [
+                'type' => 'shell',
+                'args' => ['command' => $command],
+            ],
+            ['before-snapshot', 'checkpoint', 'after-snapshot'],
+        ), null, 2);
+        $output = $workflow->refresh()->output();
+
+        $this->assertSame(
+            ['provider-before-config-change', 'provider-before-config-change'],
+            $provisionProviders,
+        );
+        $this->assertSame(
+            [['snapshot-1', 'provider-before-config-change']],
+            $restoreProviders,
+        );
+        $this->assertSame('provider-before-config-change', $output['provider']);
+        $this->assertSame(2, $output['recovery_count']);
+    }
+
     public function test_duplicate_caller_operation_ids_fail_before_provisioning(): void
     {
         WorkflowStub::fake();
@@ -285,8 +352,8 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
     }
 
     /** @return array{id: string, provider: string, metadata: array<string, mixed>} */
-    private function handle(string $id): array
+    private function handle(string $id, string $provider = 'fake'): array
     {
-        return ['id' => $id, 'provider' => 'fake', 'metadata' => []];
+        return ['id' => $id, 'provider' => $provider, 'metadata' => []];
     }
 }

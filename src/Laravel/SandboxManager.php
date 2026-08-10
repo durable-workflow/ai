@@ -35,6 +35,7 @@ final class SandboxManager
     public function driver(?string $name = null): SandboxProvider
     {
         $name ??= $this->config->defaultDriver();
+        $this->assertLocalProviderIsAllowed($name);
 
         if (isset($this->resolved[$name])) {
             return $this->resolved[$name];
@@ -94,6 +95,29 @@ final class SandboxManager
     {
         $this->factories[$name] = $factory;
         unset($this->resolved[$name]);
+    }
+
+    private function assertLocalProviderIsAllowed(string $name): void
+    {
+        if ($name !== 'local') {
+            return;
+        }
+
+        $environment = $this->container->bound('env')
+            ? $this->container->make('env')
+            : null;
+
+        if (is_string($environment) && in_array($environment, ['local', 'testing'], true)) {
+            return;
+        }
+
+        $environmentName = is_string($environment) && $environment !== ''
+            ? $environment
+            : 'unknown';
+
+        throw new SandboxConfigurationException(
+            "Sandbox provider [local] is development/test-only and cannot be used in the [{$environmentName}] environment. Configure a production sandbox provider.",
+        );
     }
 
     private function registerDefaults(): void
