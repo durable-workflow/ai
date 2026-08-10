@@ -1,0 +1,27 @@
+<?php
+
+declare(strict_types=1);
+
+namespace DurableWorkflow\AI\Activities;
+
+use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
+use DurableWorkflow\AI\Laravel\SandboxManager;
+use DurableWorkflow\AI\SandboxHandle;
+use Workflow\V2\Activity;
+
+final class SnapshotSandboxActivity extends Activity
+{
+    public int $tries = 3;
+
+    /** @param array<string, mixed> $handle */
+    public function handle(array $handle): string
+    {
+        $manager = app(SandboxManager::class);
+        $sandboxHandle = SandboxHandle::fromArray($handle);
+        $provider = $manager->driver($sandboxHandle->provider);
+        $provider->capabilities()->require(SandboxCapability::Snapshot, $provider->name());
+        $provider->renewLease($sandboxHandle, $manager->leaseTtlSeconds($provider));
+
+        return $provider->snapshot($sandboxHandle);
+    }
+}

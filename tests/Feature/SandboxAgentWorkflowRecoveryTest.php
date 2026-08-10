@@ -1,0 +1,292 @@
+<?php
+
+declare(strict_types=1);
+
+namespace DurableWorkflow\AI\Tests\Feature;
+
+use DurableWorkflow\AI\Activities\DestroySandboxActivity;
+use DurableWorkflow\AI\Activities\DispatchToolCallActivity;
+use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
+use DurableWorkflow\AI\Activities\RestoreSandboxActivity;
+use DurableWorkflow\AI\Activities\SnapshotSandboxActivity;
+use DurableWorkflow\AI\Exceptions\SandboxGoneException;
+use DurableWorkflow\AI\Tests\TestCase;
+use DurableWorkflow\AI\Workflows\SandboxAgentWorkflow;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Workflow\Exceptions\NonRetryableException;
+use Workflow\V2\Models\WorkflowFailure;
+use Workflow\V2\WorkflowStub;
+
+final class SandboxAgentWorkflowRecoveryTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_loss_immediately_before_execution_retries_the_same_stable_operation_on_a_replacement(): void
+    {
+        WorkflowStub::fake();
+        $provisions = 0;
+        $operationIds = [];
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, function () use (&$provisions): array {
+            $provisions++;
+
+            return $this->handle($provisions === 1 ? 'original' : 'replacement');
+        });
+
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$operationIds): array {
+            $operationIds[] = $call['operation_id'];
+
+            if ($handle['id'] === 'original') {
+                throw new SandboxGoneException('lost before execution');
+            }
+
+            return ['exit_code' => 0, 'stdout' => 'ran once', 'stderr' => ''];
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([['type' => 'shell', 'args' => ['command' => 'true']]]);
+        $output = $workflow->refresh()->output();
+
+        $this->assertSame(1, $output['recovery_count']);
+        $this->assertSame(2, $provisions);
+        $this->assertCount(2, $operationIds);
+        $this->assertSame($operationIds[0], $operationIds[1]);
+    }
+
+    public function test_loss_after_execution_before_acknowledgement_repeats_the_effect_on_the_replacement(): void
+    {
+        WorkflowStub::fake();
+        $provisions = 0;
+        $effects = [];
+        $receipts = [];
+        $deliveries = [];
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, function () use (&$provisions): array {
+            $provisions++;
+
+            return $this->handle($provisions === 1 ? 'original' : 'replacement');
+        });
+
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$effects, &$receipts, &$deliveries): array {
+            $operationId = $call['operation_id'];
+            $deliveries[] = $operationId;
+            $sandboxId = $handle['id'];
+
+            if (! isset($receipts[$sandboxId][$operationId])) {
+                $effects[$sandboxId] = ($effects[$sandboxId] ?? 0) + 1;
+                $receipts[$sandboxId][$operationId] = ['exit_code' => 0, 'stdout' => 'effect', 'stderr' => ''];
+            }
+
+            if ($handle['id'] === 'original') {
+                throw new SandboxGoneException('effect committed but acknowledgement lost');
+            }
+
+            return $receipts[$sandboxId][$operationId];
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([['type' => 'write_file', 'args' => ['path' => 'state', 'contents' => 'one']]]);
+        $output = $workflow->refresh()->output();
+
+        $this->assertSame(
+            ['original' => 1, 'replacement' => 1],
+            $effects,
+            'receipts deduplicate within a sandbox but do not suppress reconstruction on its replacement',
+        );
+        $this->assertSame([$deliveries[0], $deliveries[0]], $deliveries);
+        $this->assertSame($deliveries[0], $output['tool_results'][0]['operation_id']);
+    }
+
+    public function test_duplicate_caller_operation_ids_fail_before_provisioning(): void
+    {
+        WorkflowStub::fake();
+        $provisions = 0;
+        WorkflowStub::mock(ProvisionSandboxActivity::class, function () use (&$provisions): array {
+            $provisions++;
+
+            return $this->handle('unused');
+        });
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([
+            [
+                'operation_id' => 'shared-operation',
+                'type' => 'write_file',
+                'args' => ['path' => 'first', 'contents' => 'one'],
+            ],
+            [
+                'operation_id' => 'shared-operation',
+                'type' => 'write_file',
+                'args' => ['path' => 'second', 'contents' => 'two'],
+            ],
+        ]);
+
+        $this->assertTrue($workflow->refresh()->failed());
+        $this->assertSame(0, $provisions);
+
+        $failure = WorkflowFailure::query()
+            ->where('workflow_run_id', $workflow->runId())
+            ->where('source_kind', 'workflow_run')
+            ->firstOrFail();
+        $failureMessage = $failure->getAttribute('message');
+        $this->assertIsString($failureMessage);
+        $this->assertStringContainsString('operation_id [shared-operation] must be unique', $failureMessage);
+    }
+
+    public function test_restore_replays_every_completed_post_snapshot_call_before_continuing(): void
+    {
+        WorkflowStub::fake();
+        $originalCalls = [];
+        $restoredCalls = [];
+        $lost = false;
+        $snapshots = 0;
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function () use (&$snapshots): string {
+            $snapshots++;
+
+            return 'snapshot-'.$snapshots;
+        });
+        WorkflowStub::mock(RestoreSandboxActivity::class, $this->handle('restored'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$originalCalls, &$restoredCalls, &$lost): array {
+            $command = $call['args']['command'];
+
+            if ($handle['id'] === 'original') {
+                $originalCalls[$command] = $call['operation_id'];
+
+                if ($command === 'f' && ! $lost) {
+                    $lost = true;
+                    throw new SandboxGoneException('lost after two post-snapshot completions');
+                }
+            } else {
+                $restoredCalls[$command] = $call['operation_id'];
+            }
+
+            return [
+                'exit_code' => $command === 'e' ? 17 : 0,
+                'stdout' => $command,
+                'stderr' => $command === 'e' ? 'mutated before failure' : '',
+            ];
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start(array_map(
+            static fn (string $command): array => [
+                'type' => 'shell',
+                'args' => ['command' => $command],
+            ],
+            ['a', 'b', 'c', 'd', 'e', 'f'],
+        ), null, 3);
+        $output = $workflow->refresh()->output();
+
+        $this->assertSame(['d', 'e', 'f'], array_keys($restoredCalls));
+        $this->assertSame($originalCalls['d'], $restoredCalls['d']);
+        $this->assertSame($originalCalls['e'], $restoredCalls['e']);
+        $this->assertSame($originalCalls['f'], $restoredCalls['f']);
+        $this->assertCount(6, $output['tool_results']);
+        $this->assertSame(17, $output['tool_results'][4]['exit_code']);
+        $this->assertSame(1, $output['recovery_count']);
+        $this->assertSame(2, $snapshots);
+    }
+
+    public function test_recovery_fails_when_a_replayed_completion_has_a_different_outcome(): void
+    {
+        WorkflowStub::fake();
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
+        WorkflowStub::mock(SnapshotSandboxActivity::class, 'snapshot-1');
+        WorkflowStub::mock(RestoreSandboxActivity::class, $this->handle('restored'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call): array {
+            $command = $call['args']['command'];
+
+            if ($handle['id'] === 'original' && $command === 'trigger-loss') {
+                throw new SandboxGoneException('lost after acknowledged mutation');
+            }
+
+            return [
+                'exit_code' => 0,
+                'stdout' => $handle['id'] === 'restored' && $command === 'mutation'
+                    ? 'different replay outcome'
+                    : $command,
+                'stderr' => '',
+            ];
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start(array_map(
+            static fn (string $command): array => [
+                'type' => 'shell',
+                'args' => ['command' => $command],
+            ],
+            ['checkpoint-a', 'checkpoint-b', 'mutation', 'trigger-loss'],
+        ), null, 2);
+
+        $this->assertTrue($workflow->refresh()->failed());
+    }
+
+    public function test_recovery_destroys_a_rejected_replacement_without_masking_the_replay_error(): void
+    {
+        WorkflowStub::fake();
+        $destroyed = [];
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
+        WorkflowStub::mock(SnapshotSandboxActivity::class, 'snapshot-1');
+        WorkflowStub::mock(RestoreSandboxActivity::class, $this->handle('rejected'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call): array {
+            $command = $call['args']['command'];
+
+            if ($handle['id'] === 'original' && $command === 'trigger-loss') {
+                throw new SandboxGoneException('lost after acknowledged mutation');
+            }
+
+            return [
+                'exit_code' => 0,
+                'stdout' => $handle['id'] === 'rejected' && $command === 'mutation'
+                    ? 'different replay outcome'
+                    : $command,
+                'stderr' => '',
+            ];
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, function ($context, array $handle) use (&$destroyed): bool {
+            $destroyed[] = $handle['id'];
+
+            if ($handle['id'] === 'rejected') {
+                throw new NonRetryableException('replacement cleanup also failed');
+            }
+
+            return true;
+        });
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start(array_map(
+            static fn (string $command): array => [
+                'type' => 'shell',
+                'args' => ['command' => $command],
+            ],
+            ['checkpoint-a', 'checkpoint-b', 'mutation', 'trigger-loss'],
+        ), null, 2);
+
+        $this->assertTrue($workflow->refresh()->failed());
+        $this->assertSame(['rejected', 'original'], $destroyed);
+
+        $failure = WorkflowFailure::query()
+            ->where('workflow_run_id', $workflow->runId())
+            ->where('source_kind', 'workflow_run')
+            ->firstOrFail();
+
+        $failureMessage = $failure->getAttribute('message');
+        $this->assertIsString($failureMessage);
+        $this->assertStringContainsString('produced a different outcome', $failureMessage);
+        $this->assertStringNotContainsString('cleanup also failed', $failureMessage);
+    }
+
+    /** @return array{id: string, provider: string, metadata: array<string, mixed>} */
+    private function handle(string $id): array
+    {
+        return ['id' => $id, 'provider' => 'fake', 'metadata' => []];
+    }
+}

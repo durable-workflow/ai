@@ -1,0 +1,99 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }}
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.2'
+            laravel: '11'
+            framework: '^11.0'
+            testbench: '^9.0'
+            phpunit: '^11.0'
+          - php: '8.3'
+            laravel: '12'
+            framework: '^12.0'
+            testbench: '^10.0'
+            phpunit: '^11.0'
+          - php: '8.4'
+            laravel: '13'
+            framework: '^13.0'
+            testbench: '^11.0'
+            phpunit: '^12.0'
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Select compatibility dependencies
+        run: |
+          composer require --no-update "laravel/framework:${{ matrix.framework }}"
+          composer require --dev --no-update \
+            "orchestra/testbench:${{ matrix.testbench }}" \
+            "phpunit/phpunit:${{ matrix.phpunit }}"
+
+      - name: Install dependencies
+        run: composer update --prefer-dist --no-progress --no-interaction
+
+      - name: Validate package metadata
+        run: composer validate --strict --no-check-all
+
+      - name: Check formatting
+        run: composer format
+
+      - name: Run static analysis
+        run: composer stan
+
+      - name: Run tests
+        run: composer test
+
+  target-branch-qualification:
+    name: Target branch qualification
+    if: ${{ always() }}
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Require complete GitHub qualification
+        if: ${{ github.server_url == 'https://github.com' }}
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: test "$TEST_RESULT" = success
+
+      - name: Check out candidate source
+        if: ${{ github.server_url != 'https://github.com' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate bounded candidate workload
+        if: ${{ github.server_url != 'https://github.com' }}
+        run: |
+          composer validate --strict --no-check-all
+          find src config tests -type f -name '*.php' -print0 \
+            | xargs -0 -n1 php -l
