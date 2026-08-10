@@ -46,18 +46,40 @@ sandbox is reported gone it:
 4. continues only after reconstruction succeeds.
 
 A different replay outcome fails recovery instead of continuing from state that
-cannot be proven equivalent. A new snapshot resets the journal because its state
-is now in the provider checkpoint. Recovery is bounded to three replacement
-attempts.
+cannot be proven equivalent. If the sandbox disappears while creating a
+replacement checkpoint, the workflow restores the current checkpoint, replays
+the journal, and retries the rotation. A new snapshot resets the journal because
+its state is now in the provider checkpoint. Recovery is bounded to three
+replacement attempts.
+
+## Snapshot ownership and retention
+
+Snapshots created by `SandboxAgentWorkflow` are workflow-owned by default. The
+current checkpoint remains recoverable until the replacement snapshot activity
+has completed and its ID is recorded in workflow history. Only then does the
+workflow delete the superseded checkpoint. On success or failure, finalization
+deletes the last workflow-owned checkpoint before the run closes.
+
+Snapshot deletion is idempotent and its cleanup activity retries without a
+finite attempt limit. Unlike a running sandbox, a persistent checkpoint has no
+provider lease to bound a failed finalizer, so the workflow does not declare the
+recovery window closed while deletion is still failing.
+
+Passing `retainLatestSnapshot: true` is the explicit ownership transfer. It
+keeps only the newest snapshot; superseded checkpoints are still deleted. The
+caller then owns retention and deletion of that checkpoint, including when the
+workflow later fails. On success its ID is returned as `latest_snapshot`.
 
 ## Cleanup and leases
 
 Every provider used by `SandboxManager` must declare both idempotent destroy and
-lease reconciliation. Provision, restore, resume, snapshot, and dispatch renew a
-bounded lease. Normal finalization retries idempotent destroy three times. If all
-destroy attempts fail, provider-side TTL remains the hard upper bound on a paid
-resource's lifetime.
+lease reconciliation. Providers that create workflow checkpoints must also
+declare snapshot deletion and implement it idempotently. Provision, restore,
+resume, snapshot, and dispatch renew a bounded lease. Normal finalization retries
+idempotent destroy three times. If all destroy attempts fail, provider-side TTL
+remains the hard upper bound on a paid resource's lifetime.
 
 The local development provider records leases and reconciles expired workspaces
-when it next starts or provisions. Those local directories are not paid remote
-resources and are not a security boundary.
+when it next starts or provisions, and deletes snapshot archives explicitly.
+Those local directories are not paid remote resources and are not a security
+boundary.

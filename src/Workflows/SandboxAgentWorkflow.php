@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DurableWorkflow\AI\Workflows;
 
+use DurableWorkflow\AI\Activities\DeleteSnapshotActivity;
 use DurableWorkflow\AI\Activities\DestroySandboxActivity;
 use DurableWorkflow\AI\Activities\DispatchToolCallActivity;
 use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
@@ -15,6 +16,7 @@ use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\SandboxRecoveryException;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxOperationId;
+use FiberError;
 use InvalidArgumentException;
 use Throwable;
 use Workflow\V2\Exceptions\RestoredWorkflowException;
@@ -44,6 +46,7 @@ final class SandboxAgentWorkflow extends Workflow
         int $snapshotEveryNCalls = 0,
         bool $suspendBetweenCalls = false,
         array $options = [],
+        bool $retainLatestSnapshot = false,
     ): array {
         $preparedCalls = $this->prepareCalls($toolCalls);
         $handle = activity(ProvisionSandboxActivity::class, $provider, $options);
@@ -88,8 +91,37 @@ final class SandboxAgentWorkflow extends Workflow
                 $index++;
 
                 if ($snapshotEveryNCalls > 0 && $index % $snapshotEveryNCalls === 0) {
-                    $latestSnapshot = activity(SnapshotSandboxActivity::class, $handle);
+                    $previousSnapshot = $latestSnapshot;
+
+                    while (true) {
+                        try {
+                            $replacementSnapshot = activity(SnapshotSandboxActivity::class, $handle);
+
+                            break;
+                        } catch (Throwable $throwable) {
+                            if (! self::isSandboxGone($throwable)) {
+                                throw $throwable;
+                            }
+
+                            [$handle, $recoveryCount] = $this->recoverAndReconstruct(
+                                $latestSnapshot,
+                                $providerName,
+                                $options,
+                                $completedSinceSnapshot,
+                                $recoveryCount,
+                            );
+                        }
+                    }
+
+                    // The replacement activity result is in durable workflow
+                    // history before the only previously recoverable snapshot
+                    // becomes eligible for deletion.
+                    $latestSnapshot = $replacementSnapshot;
                     $completedSinceSnapshot = [];
+
+                    if ($previousSnapshot !== null) {
+                        activity(DeleteSnapshotActivity::class, $previousSnapshot, $providerName);
+                    }
                 }
 
                 if ($suspendBetweenCalls && $index < count($preparedCalls)) {
@@ -102,15 +134,25 @@ final class SandboxAgentWorkflow extends Workflow
                 'sandbox_id' => $handle['id'],
                 'provider' => $handle['provider'],
                 'tool_results' => $results,
-                'latest_snapshot' => $latestSnapshot,
+                'latest_snapshot' => $retainLatestSnapshot ? $latestSnapshot : null,
                 'recovery_count' => $recoveryCount,
             ];
         } finally {
             try {
-                activity(DestroySandboxActivity::class, $handle);
-            } catch (Throwable) {
-                // The provider lease remains the hard cleanup bound when all
-                // idempotent destroy retries are exhausted.
+                if (! $retainLatestSnapshot && $latestSnapshot !== null) {
+                    activity(DeleteSnapshotActivity::class, $latestSnapshot, $providerName);
+                }
+            } catch (FiberError) {
+                // The runtime force-closes replay fibers whenever an earlier
+                // activity suspends. Cleanup is scheduled only when execution
+                // actually reaches terminal finalization.
+            } finally {
+                try {
+                    activity(DestroySandboxActivity::class, $handle);
+                } catch (Throwable) {
+                    // The provider lease remains the hard cleanup bound when
+                    // all idempotent destroy retries are exhausted.
+                }
             }
         }
     }

@@ -118,11 +118,12 @@ final class E2bSandboxProviderTest extends TestCase
     {
         $this->http->fake(function (Request $request) {
             return match (true) {
-                str_ends_with($request->url(), '/snapshots') => $this->http->response(['snapshotID' => 'snapshot-template:v1'], 201),
+                $request->method() === 'POST' && str_ends_with($request->url(), '/snapshots') => $this->http->response(['snapshotID' => 'snapshot-template:v1'], 201),
                 $request->method() === 'POST' && $request->url() === 'https://api.e2b.app/sandboxes' => $this->http->response([
                     'templateID' => 'snapshot-template:v1',
                     'sandboxID' => 'sbx-restored',
                 ], 201),
+                $request->method() === 'DELETE' && str_contains($request->url(), '/templates/') => $this->http->response([], 404),
                 $request->method() === 'DELETE' => $this->http->response([], 404),
                 default => $this->http->response([], 204),
             };
@@ -134,14 +135,39 @@ final class E2bSandboxProviderTest extends TestCase
         $this->provider->renewLease($handle, 600);
         $snapshot = $this->provider->snapshot($handle);
         $restored = $this->provider->restore($snapshot);
+        $this->provider->deleteSnapshot($snapshot);
+        $this->provider->deleteSnapshot($snapshot);
         $this->provider->destroy($handle);
 
         $this->assertSame('sbx-restored', $restored->id);
-        $this->http->assertSentCount(6);
+        $this->assertTrue($this->provider->capabilities()->supports(SandboxCapability::SnapshotDeletion));
+        $this->http->assertSentCount(8);
         $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes/sbx-123/pause');
         $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes/sbx-123/connect' && $request['timeout'] === 900);
         $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes/sbx-123/timeout' && $request['timeout'] === 600);
         $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes' && $request['templateID'] === 'snapshot-template:v1');
+        $this->http->assertSent(fn (Request $request): bool => $request->method() === 'DELETE'
+            && $request->url() === 'https://api.e2b.app/templates/snapshot-template%3Av1');
+    }
+
+    public function test_snapshot_delete_keeps_transient_failures_retryable_and_treats_not_found_as_success(): void
+    {
+        $statuses = [503, 204, 404];
+        $this->http->fake(function () use (&$statuses) {
+            return $this->http->response([], array_shift($statuses));
+        });
+
+        try {
+            $this->provider->deleteSnapshot('snapshot-retry');
+            $this->fail('Expected a transient snapshot deletion failure.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('HTTP 503', $exception->getMessage());
+        }
+
+        $this->provider->deleteSnapshot('snapshot-retry');
+        $this->provider->deleteSnapshot('snapshot-retry');
+
+        $this->http->assertSentCount(3);
     }
 
     public function test_shell_dispatch_uses_documented_envd_connect_contract_and_stable_tag(): void

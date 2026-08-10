@@ -23,6 +23,7 @@ public function capabilities(): ProviderCapabilities
     return new ProviderCapabilities(
         supported: [
             SandboxCapability::Snapshot,
+            SandboxCapability::SnapshotDeletion,
             SandboxCapability::Restore,
             SandboxCapability::LeaseReconciliation,
         ],
@@ -58,8 +59,12 @@ deduplication from a request header that the provider does not guarantee.
 Snapshot and restore must survive worker restarts. Restoring a snapshot must
 create a sandbox capable of receiving the completed post-snapshot journal,
 including calls with nonzero exit codes, and reproducing their recorded
-outcomes. A provider that lacks either side leaves both capabilities out; calls
-then fail before the unsupported provider method runs.
+outcomes. A provider used for workflow checkpointing must expose
+`SnapshotDeletion` and implement `deleteSnapshot()` idempotently: an already
+deleted or unknown ID succeeds, while transient control-plane failures throw so
+the cleanup activity retries. A provider that lacks checkpoint support leaves
+snapshot, restore, and snapshot deletion out; calls then fail before the
+unsupported provider method runs.
 
 Suspend and resume are separate capabilities. Do not implement an unsupported
 operation as a no-op. Throw `UnsupportedSandboxCapabilityException`, normally by
@@ -83,12 +88,15 @@ A provider test suite should prove:
 - an effect completed before acknowledgement follows the advertised delivery
   guarantee;
 - snapshot restore plus several later completed calls reconstructs the same
-  state; and
+  state;
+- repeated snapshot deletion is safe and removes persistent filesystem and
+  memory state; and
 - authentication, request paths, payload casing, response casing, not-found
   mapping, and timeout behavior match the provider's public API.
 
 The E2B adapter's tests are examples of HTTP contract assertions. It uses
-`POST /sandboxes`, `POST /sandboxes/{sandboxID}/snapshots`, pause/connect,
+`POST /sandboxes`, `POST /sandboxes/{sandboxID}/snapshots`,
+`DELETE /templates/{snapshotID}`, pause/connect,
 `POST /sandboxes/{sandboxID}/timeout`, `DELETE /sandboxes/{sandboxID}`, the envd
 filesystem endpoints, and `process.Process/Start`. Its sandbox access token is
 retrieved within the activity and never stored in workflow history.

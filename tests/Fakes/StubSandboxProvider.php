@@ -18,6 +18,9 @@ final class StubSandboxProvider implements SandboxProvider
     /** @var list<string> */
     public array $destroyed = [];
 
+    /** @var list<string> */
+    public array $deletedSnapshots = [];
+
     public function __construct(
         private readonly string $providerName = 'stub',
         private readonly ?ProviderCapabilities $providerCapabilities = null,
@@ -41,6 +44,7 @@ final class StubSandboxProvider implements SandboxProvider
         return $this->providerCapabilities ?? new ProviderCapabilities(
             supported: [
                 SandboxCapability::Snapshot,
+                SandboxCapability::SnapshotDeletion,
                 SandboxCapability::Restore,
                 SandboxCapability::LeaseReconciliation,
             ],
@@ -78,6 +82,11 @@ final class StubSandboxProvider implements SandboxProvider
     public function restore(string $snapshotId): SandboxHandle
     {
         return new SandboxHandle('restored', $this->handleProvider ?? $this->providerName);
+    }
+
+    public function deleteSnapshot(string $snapshotId): void
+    {
+        $this->deletedSnapshots[] = $snapshotId;
     }
 
     public function renewLease(SandboxHandle $handle, int $ttlSeconds): SandboxHandle

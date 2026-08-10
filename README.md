@@ -7,11 +7,11 @@ of application-specific workflow code.
 
 ## Install
 
-The first release target is `2.0.0-rc.1`, aligned with the Durable Workflow 2.0
+The current release is `2.0.0-rc.2`, aligned with the Durable Workflow 2.0
 prerelease train:
 
 ```bash
-composer require durable-workflow/ai:2.0.0-rc.1@RC
+composer require durable-workflow/ai:2.0.0-rc.2@RC
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 
@@ -33,6 +33,7 @@ $workflow->start(
     ],
     provider: 'e2b',
     snapshotEveryNCalls: 10,
+    retainLatestSnapshot: false,
 );
 ```
 
@@ -40,6 +41,11 @@ The workflow attaches a stable durable operation ID to every call. It snapshots
 at the requested interval and, after sandbox loss, restores the newest snapshot
 and replays every completed later call in order before continuing. This includes
 nonzero exits because a failed command can still mutate workspace state.
+Superseded snapshots are deleted only after their replacement is durably
+recorded, and the remaining snapshot is deleted during finalization. Set
+`retainLatestSnapshot: true` only when the caller accepts ownership of the final
+checkpoint and its eventual deletion; a retained ID is returned as
+`latest_snapshot` after successful completion.
 
 ## Providers
 
@@ -53,9 +59,10 @@ The package includes:
 
 Each provider publishes a machine-readable
 `DurableWorkflow\AI\Contracts\V1\ProviderCapabilities` value. Snapshot,
-restore, suspend, resume, operation deduplication, lease reconciliation, cleanup,
-and delivery guarantees are explicit. Calling an unsupported lifecycle method
-throws `UnsupportedSandboxCapabilityException`; it never silently succeeds.
+restore, snapshot deletion, suspend, resume, operation deduplication, lease
+reconciliation, cleanup, and delivery guarantees are explicit. Calling an
+unsupported lifecycle method throws `UnsupportedSandboxCapabilityException`; it
+never silently succeeds.
 
 See [delivery and recovery guarantees](docs/delivery-and-recovery.md) for the
 failure contract and [the provider-author guide](docs/provider-author-guide.md)

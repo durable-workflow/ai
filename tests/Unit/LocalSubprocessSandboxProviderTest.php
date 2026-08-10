@@ -56,12 +56,15 @@ final class LocalSubprocessSandboxProviderTest extends TestCase
         $this->provider->destroy($handle);
 
         $restored = $this->provider->restore($snapshot);
+        $this->provider->deleteSnapshot($snapshot);
+        $this->provider->deleteSnapshot($snapshot);
         $read = $this->provider->execute(
             $restored,
             new SandboxToolCall('read-1', 'read_file', ['path' => 'state.txt']),
         );
 
         $this->assertSame('durable', $read->stdout);
+        $this->assertFileDoesNotExist($this->snapshotRoot.'/'.$snapshot.'.tar');
         $this->assertFileDoesNotExist($this->workspaceRoot.'/.leases/'.$handle->id.'.json');
     }
 
@@ -72,6 +75,7 @@ final class LocalSubprocessSandboxProviderTest extends TestCase
         $this->assertSame(DeliveryGuarantee::AtLeastOnceEffects, $capabilities->deliveryGuarantee);
         $this->assertFalse($capabilities->supports(SandboxCapability::OperationDeduplication));
         $this->assertTrue($capabilities->supports(SandboxCapability::LeaseReconciliation));
+        $this->assertTrue($capabilities->supports(SandboxCapability::SnapshotDeletion));
 
         $this->expectException(UnsupportedSandboxCapabilityException::class);
         $this->provider->suspend($this->provider->provision());

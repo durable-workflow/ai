@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DurableWorkflow\AI\Tests\Feature;
 
+use DurableWorkflow\AI\Activities\DeleteSnapshotActivity;
 use DurableWorkflow\AI\Activities\DestroySandboxActivity;
 use DurableWorkflow\AI\Activities\DispatchToolCallActivity;
 use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
@@ -121,6 +122,7 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
             return $this->handle('replacement', $selectedProvider);
         });
         WorkflowStub::mock(SnapshotSandboxActivity::class, 'snapshot-1');
+        WorkflowStub::mock(DeleteSnapshotActivity::class, true);
         WorkflowStub::mock(RestoreSandboxActivity::class, function ($context, string $snapshotId, ?string $provider) use (&$defaultProvider, &$restoreProviders): array {
             $selectedProvider = $provider ?? $defaultProvider;
             $restoreProviders[] = [$snapshotId, $selectedProvider];
@@ -217,6 +219,7 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
             return 'snapshot-'.$snapshots;
         });
         WorkflowStub::mock(RestoreSandboxActivity::class, $this->handle('restored'));
+        WorkflowStub::mock(DeleteSnapshotActivity::class, true);
         WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$originalCalls, &$restoredCalls, &$lost): array {
             $command = $call['args']['command'];
 
@@ -265,6 +268,7 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
 
         WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
         WorkflowStub::mock(SnapshotSandboxActivity::class, 'snapshot-1');
+        WorkflowStub::mock(DeleteSnapshotActivity::class, true);
         WorkflowStub::mock(RestoreSandboxActivity::class, $this->handle('restored'));
         WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call): array {
             $command = $call['args']['command'];
@@ -302,6 +306,7 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
 
         WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
         WorkflowStub::mock(SnapshotSandboxActivity::class, 'snapshot-1');
+        WorkflowStub::mock(DeleteSnapshotActivity::class, true);
         WorkflowStub::mock(RestoreSandboxActivity::class, $this->handle('rejected'));
         WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call): array {
             $command = $call['args']['command'];
@@ -349,6 +354,179 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
         $this->assertIsString($failureMessage);
         $this->assertStringContainsString('produced a different outcome', $failureMessage);
         $this->assertStringNotContainsString('cleanup also failed', $failureMessage);
+    }
+
+    public function test_checkpoint_replacement_is_recorded_before_the_previous_snapshot_is_deleted(): void
+    {
+        WorkflowStub::fake();
+        $events = [];
+        $snapshotCount = 0;
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, [
+            'exit_code' => 0,
+            'stdout' => 'ok',
+            'stderr' => '',
+        ]);
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function () use (&$events, &$snapshotCount): string {
+            $snapshotCount++;
+            $snapshotId = 'snapshot-'.$snapshotCount;
+            $events[] = 'record:'.$snapshotId;
+
+            return $snapshotId;
+        });
+        WorkflowStub::mock(DeleteSnapshotActivity::class, function ($context, string $snapshotId) use (&$events): bool {
+            $events[] = 'delete:'.$snapshotId;
+
+            return true;
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([
+            ['type' => 'shell', 'args' => ['command' => 'first']],
+            ['type' => 'shell', 'args' => ['command' => 'second']],
+        ], null, 1);
+
+        $this->assertSame([
+            'record:snapshot-1',
+            'record:snapshot-2',
+            'delete:snapshot-1',
+            'delete:snapshot-2',
+        ], $events);
+        $this->assertNull($workflow->refresh()->output()['latest_snapshot']);
+    }
+
+    public function test_explicit_retention_transfers_the_latest_snapshot_to_the_caller(): void
+    {
+        WorkflowStub::fake();
+        $deleted = [];
+        $snapshotCount = 0;
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, [
+            'exit_code' => 0,
+            'stdout' => 'ok',
+            'stderr' => '',
+        ]);
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function () use (&$snapshotCount): string {
+            $snapshotCount++;
+
+            return $snapshotCount === 1 ? 'snapshot-old' : 'snapshot-retained';
+        });
+        WorkflowStub::mock(DeleteSnapshotActivity::class, function ($context, string $snapshotId) use (&$deleted): bool {
+            $deleted[] = $snapshotId;
+
+            return true;
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start(
+            [
+                ['type' => 'shell', 'args' => ['command' => 'first checkpoint']],
+                ['type' => 'shell', 'args' => ['command' => 'second checkpoint']],
+            ],
+            null,
+            1,
+            false,
+            [],
+            true,
+        );
+
+        $this->assertSame('snapshot-retained', $workflow->refresh()->output()['latest_snapshot']);
+        $this->assertSame(['snapshot-old'], $deleted);
+    }
+
+    public function test_terminal_failure_deletes_the_remaining_workflow_owned_snapshot(): void
+    {
+        WorkflowStub::fake();
+        $deleted = [];
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call): array {
+            if ($call['args']['command'] === 'fail') {
+                throw new NonRetryableException('terminal tool failure');
+            }
+
+            return ['exit_code' => 0, 'stdout' => 'ok', 'stderr' => ''];
+        });
+        WorkflowStub::mock(SnapshotSandboxActivity::class, 'snapshot-before-failure');
+        WorkflowStub::mock(DeleteSnapshotActivity::class, function ($context, string $snapshotId) use (&$deleted): bool {
+            $deleted[] = $snapshotId;
+
+            return true;
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([
+            ['type' => 'shell', 'args' => ['command' => 'checkpoint']],
+            ['type' => 'shell', 'args' => ['command' => 'fail']],
+        ], null, 1);
+
+        $workflow->refresh();
+        $this->assertTrue($workflow->failed(), 'Unexpected workflow status: '.$workflow->status());
+        $this->assertSame(['snapshot-before-failure'], $deleted);
+    }
+
+    public function test_snapshot_loss_during_rotation_recovers_before_retiring_the_prior_checkpoint(): void
+    {
+        WorkflowStub::fake();
+        $events = [];
+        $snapshotAttempts = 0;
+        $replayed = [];
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$replayed): array {
+            if ($handle['id'] === 'restored') {
+                $replayed[] = $call['args']['command'];
+            }
+
+            return ['exit_code' => 0, 'stdout' => $call['args']['command'], 'stderr' => ''];
+        });
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function () use (&$events, &$snapshotAttempts): string {
+            $snapshotAttempts++;
+
+            if ($snapshotAttempts === 2) {
+                $events[] = 'snapshot:lost';
+                throw new SandboxGoneException('sandbox disappeared during snapshot rotation');
+            }
+
+            $snapshotId = $snapshotAttempts === 1 ? 'snapshot-1' : 'snapshot-2';
+            $events[] = 'record:'.$snapshotId;
+
+            return $snapshotId;
+        });
+        WorkflowStub::mock(RestoreSandboxActivity::class, function ($context, string $snapshotId) use (&$events): array {
+            $events[] = 'restore:'.$snapshotId;
+
+            return $this->handle('restored');
+        });
+        WorkflowStub::mock(DeleteSnapshotActivity::class, function ($context, string $snapshotId) use (&$events): bool {
+            $events[] = 'delete:'.$snapshotId;
+
+            return true;
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([
+            ['type' => 'shell', 'args' => ['command' => 'first']],
+            ['type' => 'shell', 'args' => ['command' => 'second']],
+        ], null, 1);
+        $output = $workflow->refresh()->output();
+
+        $this->assertSame([
+            'record:snapshot-1',
+            'snapshot:lost',
+            'restore:snapshot-1',
+            'record:snapshot-2',
+            'delete:snapshot-1',
+            'delete:snapshot-2',
+        ], $events);
+        $this->assertSame(['second'], $replayed);
+        $this->assertSame(1, $output['recovery_count']);
     }
 
     /** @return array{id: string, provider: string, metadata: array<string, mixed>} */

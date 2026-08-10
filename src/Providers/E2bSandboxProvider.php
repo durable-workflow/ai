@@ -50,6 +50,7 @@ final class E2bSandboxProvider implements SandboxProvider
         return new ProviderCapabilities(
             supported: [
                 SandboxCapability::Snapshot,
+                SandboxCapability::SnapshotDeletion,
                 SandboxCapability::Restore,
                 SandboxCapability::Suspend,
                 SandboxCapability::Resume,
@@ -180,6 +181,23 @@ final class E2bSandboxProvider implements SandboxProvider
 
         // E2B snapshot IDs are template identifiers accepted by POST /sandboxes.
         return $this->provision(['template_id' => $snapshotId]);
+    }
+
+    public function deleteSnapshot(string $snapshotId): void
+    {
+        $this->capabilities()->require(SandboxCapability::SnapshotDeletion, $this->name());
+        $path = '/templates/'.rawurlencode($snapshotId);
+        $response = $this->managementRequest('DELETE', $path);
+
+        if ($response->status() === 404) {
+            return;
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException(
+                "E2B snapshot delete failed: HTTP {$response->status()} {$response->body()}",
+            );
+        }
     }
 
     public function renewLease(SandboxHandle $handle, int $ttlSeconds): SandboxHandle

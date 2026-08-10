@@ -27,6 +27,15 @@ final class PublicContractTest extends TestCase
 
         $this->assertSame('1.0', $capabilities->toArray()['contract_version']);
         $this->assertSame('at_least_once_effects', $capabilities->toArray()['delivery_guarantee']);
+        $this->assertContains(
+            SandboxCapability::SnapshotDeletion->value,
+            (new ProviderCapabilities(
+                supported: [SandboxCapability::SnapshotDeletion, SandboxCapability::LeaseReconciliation],
+                deliveryGuarantee: DeliveryGuarantee::AtLeastOnceEffects,
+                idempotentDestroy: true,
+                maximumLeaseSeconds: 300,
+            ))->toArray()['supported'],
+        );
 
         $this->expectException(UnsupportedSandboxCapabilityException::class);
         $this->expectExceptionMessage('does not support [snapshot]');

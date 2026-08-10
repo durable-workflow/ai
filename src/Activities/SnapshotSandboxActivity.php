@@ -20,6 +20,7 @@ final class SnapshotSandboxActivity extends Activity
         $sandboxHandle = SandboxHandle::fromArray($handle);
         $provider = $manager->driver($sandboxHandle->provider);
         $provider->capabilities()->require(SandboxCapability::Snapshot, $provider->name());
+        $provider->capabilities()->require(SandboxCapability::SnapshotDeletion, $provider->name());
         $provider->renewLease($sandboxHandle, $manager->leaseTtlSeconds($provider));
 
         return $provider->snapshot($sandboxHandle);

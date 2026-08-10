@@ -61,6 +61,7 @@ final class LocalSubprocessSandboxProvider implements SandboxProvider
         return new ProviderCapabilities(
             supported: [
                 SandboxCapability::Snapshot,
+                SandboxCapability::SnapshotDeletion,
                 SandboxCapability::Restore,
                 SandboxCapability::LeaseReconciliation,
             ],
@@ -165,6 +166,16 @@ final class LocalSubprocessSandboxProvider implements SandboxProvider
         }
 
         return $handle;
+    }
+
+    public function deleteSnapshot(string $snapshotId): void
+    {
+        $this->capabilities()->require(SandboxCapability::SnapshotDeletion, $this->name());
+        $snapshotFile = $this->snapshotPath($snapshotId);
+
+        if (! @unlink($snapshotFile) && is_file($snapshotFile)) {
+            throw new RuntimeException("Failed to delete local snapshot {$snapshotId}.");
+        }
     }
 
     public function renewLease(SandboxHandle $handle, int $ttlSeconds): SandboxHandle
