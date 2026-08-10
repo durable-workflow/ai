@@ -7,11 +7,11 @@ of application-specific workflow code.
 
 ## Install
 
-The current release is `2.0.0-rc.2`, aligned with the Durable Workflow 2.0
+The current release is `2.0.0-rc.3`, aligned with the Durable Workflow 2.0
 prerelease train:
 
 ```bash
-composer require durable-workflow/ai:2.0.0-rc.2@RC
+composer require durable-workflow/ai:2.0.0-rc.3@RC
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 
@@ -52,7 +52,9 @@ checkpoint and its eventual deletion; a retained ID is returned as
 The package includes:
 
 - `e2b`: an HTTP adapter for E2B's documented management, filesystem, and
-  Connect process APIs. Configure `E2B_API_KEY` and `E2B_TEMPLATE_ID`.
+  Connect process APIs. Configure `E2B_API_KEY` and `E2B_TEMPLATE_ID`. E2B
+  suspend/resume is intentionally unavailable because its running timeout does
+  not bound the lifetime of a paused sandbox.
 - `local`: a subprocess workspace for development and tests. It runs commands
   with the worker's own privileges. It is not a security isolation boundary and
   must never execute untrusted code.

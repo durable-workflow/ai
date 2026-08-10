@@ -8,6 +8,7 @@ use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
 use DurableWorkflow\AI\Exceptions\PermanentSandboxProvisionException;
 use DurableWorkflow\AI\Exceptions\SandboxProvisionException;
+use DurableWorkflow\AI\Exceptions\UnsupportedSandboxCapabilityException;
 use DurableWorkflow\AI\Providers\E2bSandboxProvider;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxToolCall;
@@ -114,7 +115,7 @@ final class E2bSandboxProviderTest extends TestCase
         }
     }
 
-    public function test_lifecycle_uses_pause_connect_snapshot_template_timeout_and_idempotent_delete_routes(): void
+    public function test_lifecycle_uses_snapshot_template_timeout_and_idempotent_delete_routes(): void
     {
         $this->http->fake(function (Request $request) {
             return match (true) {
@@ -130,8 +131,6 @@ final class E2bSandboxProviderTest extends TestCase
         });
 
         $handle = new SandboxHandle('sbx-123', 'e2b');
-        $this->provider->suspend($handle);
-        $this->provider->resume($handle);
         $this->provider->renewLease($handle, 600);
         $snapshot = $this->provider->snapshot($handle);
         $restored = $this->provider->restore($snapshot);
@@ -141,13 +140,37 @@ final class E2bSandboxProviderTest extends TestCase
 
         $this->assertSame('sbx-restored', $restored->id);
         $this->assertTrue($this->provider->capabilities()->supports(SandboxCapability::SnapshotDeletion));
-        $this->http->assertSentCount(8);
-        $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes/sbx-123/pause');
-        $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes/sbx-123/connect' && $request['timeout'] === 900);
+        $this->http->assertSentCount(6);
         $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes/sbx-123/timeout' && $request['timeout'] === 600);
         $this->http->assertSent(fn (Request $request): bool => $request->url() === 'https://api.e2b.app/sandboxes' && $request['templateID'] === 'snapshot-template:v1');
         $this->http->assertSent(fn (Request $request): bool => $request->method() === 'DELETE'
             && $request->url() === 'https://api.e2b.app/templates/snapshot-template%3Av1');
+    }
+
+    public function test_suspend_and_resume_fail_before_any_e2b_request_without_paused_cleanup(): void
+    {
+        $this->http->fake();
+        $capabilities = $this->provider->capabilities();
+        $handle = new SandboxHandle('sbx-123', 'e2b');
+
+        $this->assertFalse($capabilities->supports(SandboxCapability::Suspend));
+        $this->assertFalse($capabilities->supports(SandboxCapability::Resume));
+
+        foreach ([SandboxCapability::Suspend, SandboxCapability::Resume] as $capability) {
+            try {
+                $capability === SandboxCapability::Suspend
+                    ? $this->provider->suspend($handle)
+                    : $this->provider->resume($handle);
+                $this->fail("Expected E2B {$capability->value} to be unavailable.");
+            } catch (UnsupportedSandboxCapabilityException $exception) {
+                $this->assertStringContainsString(
+                    "does not support [{$capability->value}]",
+                    $exception->getMessage(),
+                );
+            }
+        }
+
+        $this->http->assertNothingSent();
     }
 
     public function test_snapshot_delete_keeps_transient_failures_retryable_and_treats_not_found_as_success(): void

@@ -68,7 +68,12 @@ unsupported provider method runs.
 
 Suspend and resume are separate capabilities. Do not implement an unsupported
 operation as a no-op. Throw `UnsupportedSandboxCapabilityException`, normally by
-calling `ProviderCapabilities::require()`.
+calling `ProviderCapabilities::require()`. A provider may advertise suspension
+only when the sandbox's deletion deadline remains effective while paused, or an
+independently durable cleanup obligation is established before the pause. E2B
+does not currently advertise suspend or resume because its running-sandbox
+timeout does not delete a paused sandbox; both operations fail before a pause or
+connect request is sent.
 
 `destroy()` must succeed when the sandbox is already gone. Transient deletion
 errors should throw so activity retry can try again. `renewLease()` must enforce
@@ -96,7 +101,7 @@ A provider test suite should prove:
 
 The E2B adapter's tests are examples of HTTP contract assertions. It uses
 `POST /sandboxes`, `POST /sandboxes/{sandboxID}/snapshots`,
-`DELETE /templates/{snapshotID}`, pause/connect,
+`DELETE /templates/{snapshotID}`,
 `POST /sandboxes/{sandboxID}/timeout`, `DELETE /sandboxes/{sandboxID}`, the envd
 filesystem endpoints, and `process.Process/Start`. Its sandbox access token is
 retrieved within the activity and never stored in workflow history.

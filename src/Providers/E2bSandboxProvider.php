@@ -52,8 +52,6 @@ final class E2bSandboxProvider implements SandboxProvider
                 SandboxCapability::Snapshot,
                 SandboxCapability::SnapshotDeletion,
                 SandboxCapability::Restore,
-                SandboxCapability::Suspend,
-                SandboxCapability::Resume,
                 SandboxCapability::LeaseReconciliation,
             ],
             deliveryGuarantee: DeliveryGuarantee::AtLeastOnceEffects,

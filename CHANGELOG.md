@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-rc.3
+
+- Stop advertising E2B suspend/resume until paused sandboxes have an
+  independently durable cleanup deadline.
+
 ## 2.0.0-rc.2
 
 - Delete workflow-owned sandbox snapshots after safe checkpoint replacement and

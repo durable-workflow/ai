@@ -39,7 +39,7 @@
     },
     "extra": {
         "durable-workflow": {
-            "product-train": "2.0.0-rc.2",
+            "product-train": "2.0.0-rc.3",
             "contracts": {
                 "sandbox-provider": "1.0"
             }
