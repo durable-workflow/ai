@@ -7,13 +7,13 @@ of application-specific workflow code.
 
 ## Install
 
-The current release is `2.0.0-rc.5`, aligned with the Durable Workflow 2.0
+The current release is `2.0.0-rc.6`, aligned with the Durable Workflow 2.0
 prerelease train. While the Durable Workflow 2.0 packages are prereleases,
 require both packages with explicit RC stability flags in the same Composer
 invocation:
 
 ```bash
-composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.5@RC
+composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.6@RC
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 

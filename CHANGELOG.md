@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-rc.6
+
+- Recover confirmed sandbox loss while suspending or resuming by reconstructing
+  the last proven state within the bounded recovery budget.
+
 ## 2.0.0-rc.5
 
 - Document and verify the explicit Durable Workflow prerelease requirement for

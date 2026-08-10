@@ -125,8 +125,14 @@ final class SandboxAgentWorkflow extends Workflow
                 }
 
                 if ($suspendBetweenCalls && $index < count($preparedCalls)) {
-                    $handle = activity(SuspendSandboxActivity::class, $handle);
-                    $handle = activity(ResumeSandboxActivity::class, $handle);
+                    [$handle, $recoveryCount] = $this->suspendAndResume(
+                        $handle,
+                        $latestSnapshot,
+                        $providerName,
+                        $options,
+                        $completedSinceSnapshot,
+                        $recoveryCount,
+                    );
                 }
             }
 
@@ -231,6 +237,42 @@ final class SandboxAgentWorkflow extends Workflow
         }
 
         throw new SandboxGoneException('Sandbox was lost too many times during recovery.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $handle
+     * @param  array<string, mixed>  $options
+     * @param  list<array{call: array<string, mixed>, outcome: array{exit_code: int, stdout: string, stderr: string}}>  $completedSinceSnapshot
+     * @return array{array<string, mixed>, int}
+     */
+    private function suspendAndResume(
+        array $handle,
+        ?string $latestSnapshot,
+        string $provider,
+        array $options,
+        array $completedSinceSnapshot,
+        int $recoveryCount,
+    ): array {
+        while (true) {
+            try {
+                $handle = activity(SuspendSandboxActivity::class, $handle);
+                $handle = activity(ResumeSandboxActivity::class, $handle);
+
+                return [$handle, $recoveryCount];
+            } catch (Throwable $throwable) {
+                if (! self::isSandboxGone($throwable)) {
+                    throw $throwable;
+                }
+
+                [$handle, $recoveryCount] = $this->recoverAndReconstruct(
+                    $latestSnapshot,
+                    $provider,
+                    $options,
+                    $completedSinceSnapshot,
+                    $recoveryCount,
+                );
+            }
+        }
     }
 
     private static function isSandboxGone(Throwable $throwable): bool
