@@ -7,6 +7,7 @@ namespace DurableWorkflow\AI\Tests\Unit;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
 use DurableWorkflow\AI\Exceptions\PermanentSandboxProvisionException;
+use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\SandboxProvisionException;
 use DurableWorkflow\AI\Exceptions\UnsupportedSandboxCapabilityException;
 use DurableWorkflow\AI\Providers\E2bSandboxProvider;
@@ -462,6 +463,89 @@ final class E2bSandboxProviderTest extends TestCase
                 && $request->hasFile('file', 'durable state', 'state.txt')
                 && $request->hasHeader('X-Metadata-durable-operation-id', 'operation-write-123');
         });
+    }
+
+    public function test_read_file_maps_the_documented_missing_path_response_to_a_failed_result(): void
+    {
+        $this->http->fake([
+            'https://api.e2b.app/sandboxes/sbx-123' => $this->http->response([
+                'sandboxID' => 'sbx-123',
+                'envdAccessToken' => 'envd-token',
+            ]),
+            'https://sandbox.e2b.app/files*' => $this->http->response([
+                'message' => "path '/home/user/missing.txt' does not exist",
+                'code' => 404,
+            ], 404),
+        ]);
+
+        $result = $this->provider->execute(
+            new SandboxHandle('sbx-123', 'e2b'),
+            new SandboxToolCall(
+                'operation-read-missing-123',
+                'read_file',
+                ['path' => '/home/user/missing.txt'],
+            ),
+        );
+
+        $this->assertSame(1, $result->exitCode);
+        $this->assertSame('', $result->stdout);
+        $this->assertSame('File not found: /home/user/missing.txt', $result->stderr);
+        $this->http->assertSentCount(2);
+        $this->http->assertSent(function (Request $request): bool {
+            return $request->method() === 'GET'
+                && $request->url() === 'https://sandbox.e2b.app/files?path=%2Fhome%2Fuser%2Fmissing.txt'
+                && $request->hasHeader('E2b-Sandbox-Id', 'sbx-123')
+                && $request->hasHeader('E2b-Sandbox-Port', '49983')
+                && $request->hasHeader('X-Access-Token', 'envd-token');
+        });
+    }
+
+    public function test_read_file_keeps_an_unrecognized_data_plane_404_as_sandbox_loss(): void
+    {
+        $this->http->fake([
+            'https://api.e2b.app/sandboxes/sbx-123' => $this->http->response([
+                'sandboxID' => 'sbx-123',
+                'envdAccessToken' => 'envd-token',
+            ]),
+            'https://sandbox.e2b.app/files*' => $this->http->response([
+                'message' => 'sandbox not found',
+                'code' => 404,
+                'sandboxID' => 'sbx-123',
+            ], 404),
+        ]);
+
+        $this->expectException(SandboxGoneException::class);
+        $this->expectExceptionMessage('read file returned 404');
+
+        $this->provider->execute(
+            new SandboxHandle('sbx-123', 'e2b'),
+            new SandboxToolCall(
+                'operation-read-gone-123',
+                'read_file',
+                ['path' => '/home/user/missing.txt'],
+            ),
+        );
+    }
+
+    public function test_read_file_keeps_a_management_404_as_sandbox_loss(): void
+    {
+        $this->http->fake([
+            'https://api.e2b.app/sandboxes/sbx-123' => $this->http->response([
+                'message' => 'sandbox not found',
+            ], 404),
+        ]);
+
+        $this->expectException(SandboxGoneException::class);
+        $this->expectExceptionMessage('get sandbox returned 404');
+
+        $this->provider->execute(
+            new SandboxHandle('sbx-123', 'e2b'),
+            new SandboxToolCall(
+                'operation-read-gone-123',
+                'read_file',
+                ['path' => '/home/user/missing.txt'],
+            ),
+        );
     }
 
     public function test_capabilities_state_e2b_does_not_deduplicate_operations(): void

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-rc.4
+
+- Return a missing E2B file as a failed tool result without starting sandbox
+  recovery, while preserving recovery for genuine sandbox loss.
+
 ## 2.0.0-rc.3
 
 - Stop advertising E2B suspend/resume until paused sandboxes have an

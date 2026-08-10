@@ -315,9 +315,29 @@ final class E2bSandboxProvider implements SandboxProvider
 
         $response = $this->sandboxClient($handle, $accessToken)
             ->get('/files', ['path' => $path]);
+
+        if ($this->isMissingFileResponse($response)) {
+            return new SandboxToolResult(1, stderr: "File not found: {$path}");
+        }
+
         $this->requireSuccessful($response, $handle, 'read file');
 
         return new SandboxToolResult(0, $response->body());
+    }
+
+    private function isMissingFileResponse(Response $response): bool
+    {
+        if ($response->status() !== 404) {
+            return false;
+        }
+
+        $body = $response->json();
+        $message = is_array($body) ? ($body['message'] ?? null) : null;
+
+        return is_array($body)
+            && ($body['code'] ?? null) === 404
+            && is_string($message)
+            && preg_match("/^path '.+' does not exist$/D", $message) === 1;
     }
 
     private function accessToken(SandboxHandle $handle): string

@@ -22,6 +22,67 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_missing_e2b_file_result_never_provisions_or_restores_a_replacement(): void
+    {
+        WorkflowStub::fake();
+        $provisions = 0;
+        $restores = 0;
+        $snapshots = 0;
+        $readAttempts = 0;
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, function () use (&$provisions): array {
+            $provisions++;
+
+            return $this->handle('original', 'e2b');
+        });
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$readAttempts): array {
+            if ($call['type'] === 'read_file') {
+                $readAttempts++;
+
+                return [
+                    'exit_code' => 1,
+                    'stdout' => '',
+                    'stderr' => 'File not found: /home/user/missing.txt',
+                ];
+            }
+
+            return ['exit_code' => 0, 'stdout' => 'checkpoint', 'stderr' => ''];
+        });
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function () use (&$snapshots): string {
+            $snapshots++;
+
+            return 'snapshot-'.$snapshots;
+        });
+        WorkflowStub::mock(RestoreSandboxActivity::class, function () use (&$restores): array {
+            $restores++;
+
+            return $this->handle('unexpected-replacement', 'e2b');
+        });
+        WorkflowStub::mock(DeleteSnapshotActivity::class, true);
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([
+            [
+                'type' => 'write_file',
+                'args' => ['path' => '/home/user/state.txt', 'contents' => 'checkpoint'],
+            ],
+            [
+                'type' => 'read_file',
+                'args' => ['path' => '/home/user/missing.txt'],
+            ],
+        ], 'e2b', 1);
+        $output = $workflow->refresh()->output();
+
+        $this->assertSame(1, $provisions);
+        $this->assertSame(0, $restores);
+        $this->assertSame(1, $readAttempts);
+        $this->assertSame(0, $output['recovery_count']);
+        $this->assertCount(2, $output['tool_results']);
+        $this->assertSame(1, $output['tool_results'][1]['exit_code']);
+        $this->assertSame('File not found: /home/user/missing.txt', $output['tool_results'][1]['stderr']);
+    }
+
     public function test_loss_immediately_before_execution_retries_the_same_stable_operation_on_a_replacement(): void
     {
         WorkflowStub::fake();
