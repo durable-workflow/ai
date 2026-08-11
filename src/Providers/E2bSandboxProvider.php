@@ -7,7 +7,7 @@ namespace DurableWorkflow\AI\Providers;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotReconcilingSandboxProvider;
 use DurableWorkflow\AI\Exceptions\PermanentSandboxProvisionException;
 use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\SandboxProvisionException;
@@ -18,6 +18,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -25,7 +26,7 @@ use RuntimeException;
  * filesystem, and Connect process HTTP APIs. E2B publishes official JavaScript
  * and Python SDKs; this PHP adapter intentionally uses those HTTP contracts.
  */
-final class E2bSandboxProvider implements SnapshotDeletingSandboxProvider
+final class E2bSandboxProvider implements SnapshotReconcilingSandboxProvider
 {
     private const ENVD_PORT = 49983;
 
@@ -161,6 +162,73 @@ final class E2bSandboxProvider implements SnapshotDeletingSandboxProvider
         $response = $this->managementClient()
             ->withBody('{}', 'application/json')
             ->post("/sandboxes/{$handle->id}/snapshots");
+        $this->requireSuccessful($response, $handle, 'snapshot');
+
+        $body = $response->json();
+        $snapshotId = is_array($body) ? (string) ($body['snapshotID'] ?? '') : '';
+
+        if ($snapshotId === '') {
+            throw new RuntimeException('E2B snapshot response did not include snapshotID.');
+        }
+
+        return $snapshotId;
+    }
+
+    public function snapshotForOperation(SandboxHandle $handle, string $operationId): string
+    {
+        $this->capabilities()->require(SandboxCapability::Snapshot, $this->name());
+
+        if ($operationId === '') {
+            throw new InvalidArgumentException('Snapshot operation id must not be empty.');
+        }
+
+        $operationName = 'dwai-snapshot-'.substr(hash('sha256', $operationId), 0, 48);
+        $existing = $this->managementRequest('GET', '/snapshots', [
+            'name' => $operationName,
+            'limit' => 100,
+        ]);
+
+        if (! $existing->successful()) {
+            throw new RuntimeException(
+                "E2B snapshot reconciliation failed: HTTP {$existing->status()} {$existing->body()}",
+            );
+        }
+
+        $snapshots = $existing->json();
+
+        if (! is_array($snapshots) || ! array_is_list($snapshots)) {
+            throw new RuntimeException('E2B snapshot reconciliation returned an invalid snapshot list.');
+        }
+
+        foreach ($snapshots as $snapshot) {
+            $snapshotId = is_array($snapshot) ? (string) ($snapshot['snapshotID'] ?? '') : '';
+            $names = is_array($snapshot) && is_array($snapshot['names'] ?? null)
+                ? $snapshot['names']
+                : [];
+
+            foreach ($names as $name) {
+                if (is_string($name) && preg_match(
+                    '~(?:^|/)'.preg_quote($operationName, '~').':[^/]+$~D',
+                    $name,
+                ) === 1) {
+                    if ($snapshotId === '') {
+                        throw new RuntimeException('E2B snapshot reconciliation response did not include snapshotID.');
+                    }
+
+                    return $snapshotId;
+                }
+            }
+        }
+
+        if ($snapshots !== []) {
+            throw new RuntimeException('E2B snapshot reconciliation did not return the requested operation name.');
+        }
+
+        $response = $this->managementRequest(
+            'POST',
+            "/sandboxes/{$handle->id}/snapshots",
+            ['name' => $operationName],
+        );
         $this->requireSuccessful($response, $handle, 'snapshot');
 
         $body = $response->json();

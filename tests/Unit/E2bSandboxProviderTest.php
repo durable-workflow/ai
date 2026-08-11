@@ -13,10 +13,13 @@ use DurableWorkflow\AI\Exceptions\UnsupportedSandboxCapabilityException;
 use DurableWorkflow\AI\Providers\E2bSandboxProvider;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxToolCall;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Throwable;
 
 final class E2bSandboxProviderTest extends TestCase
 {
@@ -192,6 +195,91 @@ final class E2bSandboxProviderTest extends TestCase
         $this->provider->deleteSnapshot('snapshot-retry');
 
         $this->http->assertSentCount(3);
+    }
+
+    public function test_snapshot_retry_reconciles_creation_after_the_provider_response_is_lost(): void
+    {
+        $created = [];
+        $deleted = [];
+        $postCount = 0;
+
+        $this->http->fake(function (Request $request) use (&$created, &$deleted, &$postCount) {
+            $url = parse_url($request->url());
+            $path = (string) ($url['path'] ?? '');
+
+            if ($request->method() === 'GET' && $path === '/snapshots') {
+                parse_str((string) ($url['query'] ?? ''), $query);
+                $name = (string) ($query['name'] ?? '');
+
+                return $this->http->response(array_values(array_filter(
+                    $created,
+                    static fn (array $snapshot): bool => $snapshot['operation_name'] === $name,
+                )));
+            }
+
+            if ($request->method() === 'POST' && str_ends_with($path, '/snapshots')) {
+                $postCount++;
+                $name = (string) ($request['name'] ?? '');
+                $snapshotId = $name === ''
+                    ? "unnamed-snapshot-{$postCount}:default"
+                    : "test-team/{$name}:default";
+                $created[] = [
+                    'snapshotID' => $snapshotId,
+                    'names' => [$snapshotId],
+                    'operation_name' => $name,
+                ];
+
+                if ($postCount === 1) {
+                    throw new ConnectionException('snapshot persisted but response was lost');
+                }
+
+                return $this->http->response(end($created), 201);
+            }
+
+            if ($request->method() === 'DELETE' && str_starts_with($path, '/templates/')) {
+                $snapshotId = rawurldecode(substr($path, strlen('/templates/')));
+
+                foreach ($created as $index => $snapshot) {
+                    if ($snapshot['snapshotID'] === $snapshotId) {
+                        $deleted[] = $index;
+                    }
+                }
+
+                return $this->http->response([], 204);
+            }
+
+            return $this->http->response([], 404);
+        });
+
+        $handle = new SandboxHandle('sbx-123', 'e2b');
+
+        try {
+            $this->provider->snapshotForOperation($handle, 'workflow-snapshot-operation');
+            $this->fail('Expected the first snapshot acknowledgement to be lost.');
+        } catch (Throwable $exception) {
+            $this->assertStringContainsString('response was lost', $exception->getMessage());
+        }
+
+        $snapshotId = $this->provider->snapshotForOperation($handle, 'workflow-snapshot-operation');
+        $this->provider->deleteSnapshot($snapshotId);
+
+        $this->assertSame(1, $postCount, 'The retry must discover the first persistent snapshot.');
+        $this->assertNotSame('', $created[0]['operation_name']);
+        $this->assertSame(array_keys($created), $deleted);
+    }
+
+    public function test_snapshot_reconciliation_rejects_an_empty_operation_identity(): void
+    {
+        $this->http->fake();
+
+        try {
+            $this->provider->snapshotForOperation(new SandboxHandle('sbx-123', 'e2b'), '');
+            $this->fail('Expected an empty snapshot operation identity to be rejected.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertStringContainsString('must not be empty', $exception->getMessage());
+        }
+
+        $this->http->assertNothingSent();
     }
 
     public function test_shell_dispatch_uses_documented_envd_connect_contract_and_stable_tag(): void

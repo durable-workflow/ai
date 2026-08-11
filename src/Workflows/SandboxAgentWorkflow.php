@@ -92,10 +92,18 @@ final class SandboxAgentWorkflow extends Workflow
 
                 if ($snapshotEveryNCalls > 0 && $index % $snapshotEveryNCalls === 0) {
                     $previousSnapshot = $latestSnapshot;
+                    $snapshotOperationId = SandboxOperationId::forWorkflowSnapshot(
+                        $this->runId(),
+                        $index,
+                    );
 
                     while (true) {
                         try {
-                            $replacementSnapshot = activity(SnapshotSandboxActivity::class, $handle);
+                            $replacementSnapshot = activity(
+                                SnapshotSandboxActivity::class,
+                                $handle,
+                                $snapshotOperationId,
+                            );
 
                             break;
                         } catch (Throwable $throwable) {

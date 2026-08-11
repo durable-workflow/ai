@@ -1,12 +1,15 @@
 # Delivery and recovery guarantees
 
 Durable Workflow records each tool call in workflow history and passes a stable
-`operation_id` to `SandboxProvider::execute()`. The default ID is derived from
-the workflow run and call index, so activity retries and workflow replay do not
-invent new identities. Applications may supply their own non-empty operation ID
-when they need an external business key. Caller-supplied IDs must be unique
-within the workflow run; the workflow rejects a duplicate before provisioning a
-sandbox so distinct calls can never share a provider idempotency key.
+`operation_id` to `SandboxProvider::execute()`. It also passes a distinct stable
+operation ID to each snapshot rotation through the additive
+`SnapshotReconcilingSandboxProvider` contract. The default IDs are derived from
+the workflow run and call or checkpoint position, so activity retries and
+workflow replay do not invent new identities. Applications may supply their own
+non-empty tool-call operation ID when they need an external business key.
+Caller-supplied IDs must be unique within the workflow run; the workflow rejects
+a duplicate before provisioning a sandbox so distinct calls can never share a
+provider idempotency key.
 
 ## Dispatch boundary
 
@@ -48,9 +51,12 @@ sandbox is reported gone it:
 A different replay outcome fails recovery instead of continuing from state that
 cannot be proven equivalent. If the sandbox disappears while creating a
 replacement checkpoint, the workflow restores the current checkpoint, replays
-the journal, and retries the rotation. A new snapshot resets the journal because
-its state is now in the provider checkpoint. Recovery is bounded to three
-replacement attempts.
+the journal, and retries the rotation with the same snapshot operation ID. The
+E2B adapter derives a deterministic snapshot name from that ID and lists by that
+name before creation. If E2B persisted the snapshot but its response was lost,
+the retry recovers its ID instead of creating an anonymous orphan. A new
+snapshot resets the journal because its state is now in the provider checkpoint.
+Recovery is bounded to three replacement attempts.
 
 ## Snapshot ownership and retention
 
@@ -75,8 +81,11 @@ workflow later fails. On success its ID is returned as `latest_snapshot`.
 Every provider used by `SandboxManager` must declare both idempotent destroy and
 lease reconciliation. Providers that create workflow checkpoints must also
 declare snapshot deletion, implement the versioned
-`SnapshotDeletingSandboxProvider` extension, and delete idempotently. Provision,
-restore, resume, snapshot, and dispatch renew a bounded lease. Normal
+`SnapshotDeletingSandboxProvider` extension, and delete idempotently. Providers
+that can durably name or discover a checkpoint should implement
+`SnapshotReconcilingSandboxProvider` so an uncertain retry returns the original
+artifact. Provision, restore, resume, snapshot, and dispatch renew a bounded
+lease. Normal
 finalization retries idempotent destroy three times. If all destroy attempts
 fail, provider-side TTL remains the hard upper bound on a paid resource's
 lifetime.

@@ -39,10 +39,11 @@
     },
     "extra": {
         "durable-workflow": {
-            "product-train": "2.0.0-rc.7",
+            "product-train": "2.0.0-rc.8",
             "contracts": {
                 "sandbox-provider": "1.0",
-                "sandbox-provider.snapshot-deletion": "1.0"
+                "sandbox-provider.snapshot-deletion": "1.0",
+                "sandbox-provider.snapshot-reconciliation": "1.0"
             }
         },
         "laravel": {

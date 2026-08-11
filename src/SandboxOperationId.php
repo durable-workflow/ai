@@ -16,4 +16,13 @@ final class SandboxOperationId
 
         return 'dwaiv1_'.hash('sha256', "{$workflowRunId}\0{$callIndex}");
     }
+
+    public static function forWorkflowSnapshot(string $workflowRunId, int $completedCallCount): string
+    {
+        if ($workflowRunId === '' || $completedCallCount < 0) {
+            throw new InvalidArgumentException('Snapshot operation ids require a workflow run id and non-negative completed call count.');
+        }
+
+        return 'dwaiv1_'.hash('sha256', "snapshot\0{$workflowRunId}\0{$completedCallCount}");
+    }
 }

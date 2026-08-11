@@ -7,19 +7,22 @@ namespace DurableWorkflow\AI\Tests\Fakes;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotReconcilingSandboxProvider;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxToolCall;
 use DurableWorkflow\AI\SandboxToolResult;
 use Throwable;
 
-final class StubSandboxProvider implements SnapshotDeletingSandboxProvider
+final class StubSandboxProvider implements SnapshotReconcilingSandboxProvider
 {
     /** @var list<string> */
     public array $destroyed = [];
 
     /** @var list<string> */
     public array $deletedSnapshots = [];
+
+    /** @var list<string> */
+    public array $snapshotOperations = [];
 
     public function __construct(
         private readonly string $providerName = 'stub',
@@ -76,6 +79,13 @@ final class StubSandboxProvider implements SnapshotDeletingSandboxProvider
 
     public function snapshot(SandboxHandle $handle): string
     {
+        return 'snapshot';
+    }
+
+    public function snapshotForOperation(SandboxHandle $handle, string $operationId): string
+    {
+        $this->snapshotOperations[] = $operationId;
+
         return 'snapshot';
     }
 

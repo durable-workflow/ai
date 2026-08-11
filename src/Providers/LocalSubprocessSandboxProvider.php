@@ -7,7 +7,7 @@ namespace DurableWorkflow\AI\Providers;
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotReconcilingSandboxProvider;
 use DurableWorkflow\AI\Exceptions\SandboxConfigurationException;
 use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\SandboxProvisionException;
@@ -15,6 +15,7 @@ use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxToolCall;
 use DurableWorkflow\AI\SandboxToolResult;
 use FilesystemIterator;
+use InvalidArgumentException;
 use PharData;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -29,7 +30,7 @@ use Throwable;
  * convenient local infrastructure, not a security isolation boundary, and must
  * not be used to execute untrusted code.
  */
-final class LocalSubprocessSandboxProvider implements SnapshotDeletingSandboxProvider
+final class LocalSubprocessSandboxProvider implements SnapshotReconcilingSandboxProvider
 {
     private const MAXIMUM_LEASE_SECONDS = 3600;
 
@@ -124,14 +125,40 @@ final class LocalSubprocessSandboxProvider implements SnapshotDeletingSandboxPro
     public function snapshot(SandboxHandle $handle): string
     {
         $this->capabilities()->require(SandboxCapability::Snapshot, $this->name());
-        $workspace = $this->requireWorkspace($handle);
         $snapshotId = $this->generateId('snap');
+
+        return $this->createSnapshot($handle, $snapshotId);
+    }
+
+    public function snapshotForOperation(SandboxHandle $handle, string $operationId): string
+    {
+        $this->capabilities()->require(SandboxCapability::Snapshot, $this->name());
+
+        if ($operationId === '') {
+            throw new InvalidArgumentException('Snapshot operation id must not be empty.');
+        }
+
+        $snapshotId = 'snap_'.hash('sha256', $operationId);
+        $snapshotFile = $this->snapshotPath($snapshotId);
+
+        if (is_file($snapshotFile)) {
+            return $snapshotId;
+        }
+
+        return $this->createSnapshot($handle, $snapshotId);
+    }
+
+    private function createSnapshot(SandboxHandle $handle, string $snapshotId): string
+    {
+        $workspace = $this->requireWorkspace($handle);
         $snapshotFile = $this->snapshotPath($snapshotId);
 
         try {
             $tar = new PharData($snapshotFile);
             $tar->buildFromDirectory($workspace);
         } catch (Throwable $exception) {
+            @unlink($snapshotFile);
+
             throw new RuntimeException(
                 "Snapshot failed for sandbox {$handle->id}: {$exception->getMessage()}",
                 previous: $exception,

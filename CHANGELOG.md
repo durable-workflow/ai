@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-rc.8
+
+- Reconcile snapshot creation retries by a deterministic workflow operation ID
+  without changing the V1 sandbox provider method boundary.
+
 ## 2.0.0-rc.7
 
 - Restore the original V1 sandbox provider method boundary and expose snapshot

@@ -9,6 +9,7 @@ use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
 use DurableWorkflow\AI\Contracts\V1\SandboxProvider;
 use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotReconcilingSandboxProvider;
 use DurableWorkflow\AI\Exceptions\UnsupportedSandboxCapabilityException;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\SandboxOperationId;
@@ -18,14 +19,20 @@ use PHPUnit\Framework\TestCase;
 
 final class PublicContractTest extends TestCase
 {
-    public function test_snapshot_deletion_is_a_machine_readable_extension_of_the_unchanged_v1_boundary(): void
+    public function test_snapshot_extensions_are_machine_readable_without_changing_the_v1_boundary(): void
     {
         $base = new \ReflectionClass(SandboxProvider::class);
-        $extension = new \ReflectionClass(SnapshotDeletingSandboxProvider::class);
+        $deletion = new \ReflectionClass(SnapshotDeletingSandboxProvider::class);
+        $reconciliation = new \ReflectionClass(SnapshotReconcilingSandboxProvider::class);
 
         $this->assertFalse($base->hasMethod('deleteSnapshot'));
-        $this->assertTrue($extension->hasMethod('deleteSnapshot'));
-        $this->assertTrue($extension->isSubclassOf(SandboxProvider::class));
+        $this->assertFalse($base->hasMethod('snapshotForOperation'));
+        $this->assertSame(1, $base->getMethod('snapshot')->getNumberOfRequiredParameters());
+        $this->assertTrue($deletion->hasMethod('deleteSnapshot'));
+        $this->assertTrue($deletion->isSubclassOf(SandboxProvider::class));
+        $this->assertTrue($reconciliation->hasMethod('snapshotForOperation'));
+        $this->assertTrue($reconciliation->isSubclassOf(SandboxProvider::class));
+        $this->assertTrue($reconciliation->isSubclassOf(SnapshotDeletingSandboxProvider::class));
 
         /** @var array{extra: array{durable-workflow: array{contracts: array<string, string>}}} $composer */
         $composer = json_decode(
@@ -39,6 +46,10 @@ final class PublicContractTest extends TestCase
         $this->assertSame(
             SnapshotDeletingSandboxProvider::CONTRACT_VERSION,
             $contracts[SnapshotDeletingSandboxProvider::CONTRACT_NAME],
+        );
+        $this->assertSame(
+            SnapshotReconcilingSandboxProvider::CONTRACT_VERSION,
+            $contracts[SnapshotReconcilingSandboxProvider::CONTRACT_NAME],
         );
     }
 
@@ -86,5 +97,10 @@ final class PublicContractTest extends TestCase
         $this->assertSame($first, SandboxOperationId::forWorkflowCall('run-123', 4));
         $this->assertNotSame($first, SandboxOperationId::forWorkflowCall('run-123', 5));
         $this->assertNotSame($first, SandboxOperationId::forWorkflowCall('run-456', 4));
+
+        $snapshot = SandboxOperationId::forWorkflowSnapshot('run-123', 4);
+        $this->assertSame($snapshot, SandboxOperationId::forWorkflowSnapshot('run-123', 4));
+        $this->assertNotSame($snapshot, SandboxOperationId::forWorkflowSnapshot('run-123', 5));
+        $this->assertNotSame($first, $snapshot);
     }
 }

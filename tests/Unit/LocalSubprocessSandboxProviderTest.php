@@ -68,6 +68,25 @@ final class LocalSubprocessSandboxProviderTest extends TestCase
         $this->assertFileDoesNotExist($this->workspaceRoot.'/.leases/'.$handle->id.'.json');
     }
 
+    public function test_snapshot_operation_retry_reuses_the_persistent_archive(): void
+    {
+        $handle = $this->provider->provision();
+        $this->provider->execute(
+            $handle,
+            new SandboxToolCall('write-1', 'write_file', ['path' => 'state.txt', 'contents' => 'durable']),
+        );
+
+        $first = $this->provider->snapshotForOperation($handle, 'snapshot-operation-1');
+        $second = $this->provider->snapshotForOperation($handle, 'snapshot-operation-1');
+
+        $this->assertSame($first, $second);
+        $this->assertFileExists($this->snapshotRoot.'/'.$first.'.tar');
+        $this->assertCount(
+            1,
+            iterator_to_array(new FilesystemIterator($this->snapshotRoot, FilesystemIterator::SKIP_DOTS)),
+        );
+    }
+
     public function test_capabilities_expose_at_least_once_development_boundary_and_reject_suspend(): void
     {
         $capabilities = $this->provider->capabilities();

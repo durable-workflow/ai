@@ -4,7 +4,9 @@ Provider integrations implement the versioned base
 `DurableWorkflow\AI\Contracts\V1\SandboxProvider` interface. Snapshot deletion
 is an additive contract: providers that support it implement
 `DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider`, which
-extends the unchanged base interface. Register a factory with
+extends the unchanged base interface. Retry-safe snapshot creation is another
+additive contract: `SnapshotReconcilingSandboxProvider` extends the deletion
+contract and receives a deterministic operation ID. Register a factory with
 `SandboxManager::extend()`; workflows and activities should never resolve a
 concrete adapter directly.
 
@@ -12,11 +14,11 @@ concrete adapter directly.
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\ProviderCapabilities;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider;
+use DurableWorkflow\AI\Contracts\V1\SnapshotReconcilingSandboxProvider;
 use DurableWorkflow\AI\Laravel\SandboxManager;
 
 $this->app->afterResolving(SandboxManager::class, function (SandboxManager $manager): void {
-    $manager->extend('acme', static fn ($app, array $config): SnapshotDeletingSandboxProvider => new AcmeProvider(
+    $manager->extend('acme', static fn ($app, array $config): SnapshotReconcilingSandboxProvider => new AcmeProvider(
         token: (string) $config['token'],
     ));
 });
@@ -62,12 +64,16 @@ deduplication from a request header that the provider does not guarantee.
 Snapshot and restore must survive worker restarts. Restoring a snapshot must
 create a sandbox capable of receiving the completed post-snapshot journal,
 including calls with nonzero exit codes, and reproducing their recorded
-outcomes. A provider used for workflow checkpointing must expose
+outcomes. `snapshotForOperation()` must create or discover a checkpoint using
+the supplied operation ID and return the same persistent ID when the activity
+is delivered again after an uncertain acknowledgement. A provider used for
+workflow checkpointing must expose
 `SnapshotDeletion`, implement `SnapshotDeletingSandboxProvider`, and make
 `deleteSnapshot()` idempotent: an already deleted or unknown ID succeeds, while
 transient control-plane failures throw so the cleanup activity retries. The
-base `SandboxProvider` contract remains at version 1.0, and the deletion
-extension has its own `sandbox-provider.snapshot-deletion` 1.0 metadata entry.
+base `SandboxProvider` contract remains at version 1.0, and the deletion and
+reconciliation extensions have their own `sandbox-provider.snapshot-deletion`
+and `sandbox-provider.snapshot-reconciliation` 1.0 metadata entries.
 A provider built against the original base contract continues to load; when it
 leaves snapshot deletion out, a checkpoint request fails at capability
 negotiation before an unsupported method is called.
