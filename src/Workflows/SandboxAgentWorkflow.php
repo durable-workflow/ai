@@ -57,6 +57,7 @@ final class SandboxAgentWorkflow extends Workflow
         $results = [];
         $completedSinceSnapshot = [];
         $latestSnapshot = null;
+        $latestSnapshotTransferred = false;
         $recoveryCount = 0;
         $lossInjected = false;
 
@@ -165,16 +166,22 @@ final class SandboxAgentWorkflow extends Workflow
                 }
             }
 
-            return [
+            $output = [
                 'sandbox_id' => $handle['id'],
                 'provider' => $handle['provider'],
                 'tool_results' => $results,
                 'latest_snapshot' => $retainLatestSnapshot ? $latestSnapshot : null,
                 'recovery_count' => $recoveryCount,
             ];
+
+            // Retention is only an ownership transfer once this successful
+            // result gives the caller the checkpoint ID.
+            $latestSnapshotTransferred = $retainLatestSnapshot && $latestSnapshot !== null;
+
+            return $output;
         } finally {
             try {
-                if (! $retainLatestSnapshot && $latestSnapshot !== null) {
+                if (! $latestSnapshotTransferred && $latestSnapshot !== null) {
                     activity(DeleteSnapshotActivity::class, $latestSnapshot, $providerName);
                 }
             } catch (FiberError) {

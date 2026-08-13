@@ -79,10 +79,12 @@ finite attempt limit. Unlike a running sandbox, a persistent checkpoint has no
 provider lease to bound a failed finalizer, so the workflow does not declare the
 recovery window closed while deletion is still failing.
 
-Passing `retainLatestSnapshot: true` is the explicit ownership transfer. It
-keeps only the newest snapshot; superseded checkpoints are still deleted. The
-caller then owns retention and deletion of that checkpoint, including when the
-workflow later fails. On success its ID is returned as `latest_snapshot`.
+Passing `retainLatestSnapshot: true` requests an ownership transfer on successful
+completion. It keeps only the newest snapshot; superseded checkpoints are still
+deleted. On success the result returns its ID as `latest_snapshot`, and the caller
+then owns retention and deletion of that checkpoint. If a later activity fails,
+the workflow still owns and deletes the final checkpoint because no successful
+result exposed its ID.
 
 ## Cleanup and leases
 

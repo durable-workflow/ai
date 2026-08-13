@@ -819,7 +819,7 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
         $this->assertSame(['snapshot-old'], $deleted);
     }
 
-    public function test_terminal_failure_deletes_the_remaining_workflow_owned_snapshot(): void
+    public function test_terminal_failure_deletes_a_snapshot_requested_for_retention_before_ownership_transfer(): void
     {
         WorkflowStub::fake();
         $deleted = [];
@@ -841,14 +841,25 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
         WorkflowStub::mock(DestroySandboxActivity::class, true);
 
         $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
-        $workflow->start([
-            ['type' => 'shell', 'args' => ['command' => 'checkpoint']],
-            ['type' => 'shell', 'args' => ['command' => 'fail']],
-        ], null, 1);
+        $workflow->start(
+            [
+                ['type' => 'shell', 'args' => ['command' => 'checkpoint']],
+                ['type' => 'shell', 'args' => ['command' => 'fail']],
+            ],
+            null,
+            1,
+            false,
+            [],
+            true,
+        );
 
         $workflow->refresh();
         $this->assertTrue($workflow->failed(), 'Unexpected workflow status: '.$workflow->status());
-        $this->assertSame(['snapshot-before-failure'], $deleted);
+        $this->assertSame(
+            ['snapshot-before-failure'],
+            $deleted,
+            'A failed workflow cannot transfer a checkpoint through its success-only result.',
+        );
     }
 
     public function test_snapshot_loss_during_rotation_recovers_before_retiring_the_prior_checkpoint(): void

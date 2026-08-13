@@ -4,6 +4,8 @@
 
 - Add deterministic local loss injection outside tool dispatch so recovery
   demonstrations cannot journal and replay a destructive injection effect.
+- Keep a requested retained snapshot workflow-owned until successful completion
+  exposes its ID, deleting it instead when the workflow fails.
 
 ## 2.0.0-rc.8
 

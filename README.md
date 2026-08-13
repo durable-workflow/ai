@@ -53,8 +53,9 @@ nonzero exits because a failed command can still mutate workspace state.
 Superseded snapshots are deleted only after their replacement is durably
 recorded, and the remaining snapshot is deleted during finalization. Set
 `retainLatestSnapshot: true` only when the caller accepts ownership of the final
-checkpoint and its eventual deletion; a retained ID is returned as
-`latest_snapshot` after successful completion.
+checkpoint and its eventual deletion. Ownership transfers when a successful
+result returns the ID as `latest_snapshot`; a failed workflow deletes the final
+checkpoint because it cannot expose that result.
 
 For deterministic development and test recovery checks, local-provider callers
 may pass `injectLossAfterNCalls` as the final workflow argument. The workflow
