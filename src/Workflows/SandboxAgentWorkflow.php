@@ -254,11 +254,13 @@ final class SandboxAgentWorkflow extends Workflow
     ): array {
         while ($recoveryCount < self::MAX_RECOVERIES) {
             $recoveryCount++;
-            $candidate = $latestSnapshot === null
-                ? activity(ProvisionSandboxActivity::class, $provider, $options)
-                : activity(RestoreSandboxActivity::class, $latestSnapshot, $provider);
+            $candidate = null;
 
             try {
+                $candidate = $latestSnapshot === null
+                    ? activity(ProvisionSandboxActivity::class, $provider, $options)
+                    : activity(RestoreSandboxActivity::class, $latestSnapshot, $provider);
+
                 foreach ($completedSinceSnapshot as $completed) {
                     $call = $completed['call'];
                     $result = activity(DispatchToolCallActivity::class, $candidate, $call);
@@ -272,11 +274,13 @@ final class SandboxAgentWorkflow extends Workflow
 
                 return [$candidate, $recoveryCount];
             } catch (Throwable $throwable) {
-                try {
-                    activity(DestroySandboxActivity::class, $candidate);
-                } catch (Throwable) {
-                    // Preserve the reconstruction failure. The candidate's
-                    // bounded provider lease remains the cleanup backstop.
+                if ($candidate !== null) {
+                    try {
+                        activity(DestroySandboxActivity::class, $candidate);
+                    } catch (Throwable) {
+                        // Preserve the reconstruction failure. The candidate's
+                        // bounded provider lease remains the cleanup backstop.
+                    }
                 }
 
                 if (! self::isSandboxGone($throwable)) {
