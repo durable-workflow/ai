@@ -7,12 +7,14 @@ namespace DurableWorkflow\AI\Tests\Feature;
 use DurableWorkflow\AI\Activities\DeleteSnapshotActivity;
 use DurableWorkflow\AI\Activities\DestroySandboxActivity;
 use DurableWorkflow\AI\Activities\DispatchToolCallActivity;
+use DurableWorkflow\AI\Activities\InjectSandboxLossActivity;
 use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
 use DurableWorkflow\AI\Activities\RestoreSandboxActivity;
 use DurableWorkflow\AI\Activities\ResumeSandboxActivity;
 use DurableWorkflow\AI\Activities\SnapshotSandboxActivity;
 use DurableWorkflow\AI\Activities\SuspendSandboxActivity;
 use DurableWorkflow\AI\Exceptions\SandboxGoneException;
+use DurableWorkflow\AI\SandboxOperationId;
 use DurableWorkflow\AI\Tests\TestCase;
 use DurableWorkflow\AI\Workflows\SandboxAgentWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -323,6 +325,73 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
         $this->assertSame(17, $output['tool_results'][4]['exit_code']);
         $this->assertSame(1, $output['recovery_count']);
         $this->assertSame(2, $snapshots);
+    }
+
+    public function test_loss_injection_is_consumed_once_outside_the_tool_journal(): void
+    {
+        WorkflowStub::fake();
+        $events = [];
+        $injectionOperationIds = [];
+        $snapshotCount = 0;
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, $this->handle('original', 'local'));
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle, array $call) use (&$events): array {
+            $command = $call['args']['command'];
+            $events[] = "dispatch:{$handle['id']}:{$command}";
+
+            return ['exit_code' => 0, 'stdout' => $command, 'stderr' => ''];
+        });
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function ($context, array $handle) use (&$events, &$snapshotCount): string {
+            $snapshotCount++;
+            $events[] = 'snapshot:'.$handle['id'];
+
+            return 'snapshot-'.$snapshotCount;
+        });
+        WorkflowStub::mock(InjectSandboxLossActivity::class, function ($context, array $handle, string $operationId) use (&$events, &$injectionOperationIds): string {
+            $events[] = 'inject:'.$handle['id'];
+            $injectionOperationIds[] = $operationId;
+
+            return $operationId;
+        });
+        WorkflowStub::mock(RestoreSandboxActivity::class, function ($context, string $snapshotId) use (&$events): array {
+            $events[] = 'restore:'.$snapshotId;
+
+            return $this->handle('restored', 'local');
+        });
+        WorkflowStub::mock(DeleteSnapshotActivity::class, true);
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start(array_map(
+            static fn (string $command): array => [
+                'type' => 'shell',
+                'args' => ['command' => $command],
+            ],
+            ['checkpoint-a', 'checkpoint-b', 'post-snapshot', 'continued'],
+        ), null, 2, false, [], false, 3);
+        $output = $workflow->refresh()->output();
+
+        $this->assertSame([
+            'dispatch:original:checkpoint-a',
+            'dispatch:original:checkpoint-b',
+            'snapshot:original',
+            'dispatch:original:post-snapshot',
+            'inject:original',
+            'restore:snapshot-1',
+            'dispatch:restored:post-snapshot',
+            'dispatch:restored:continued',
+            'snapshot:restored',
+        ], $events);
+        $this->assertSame(
+            [SandboxOperationId::forWorkflowLossInjection($workflow->runId(), 3)],
+            $injectionOperationIds,
+        );
+        $this->assertSame(1, $output['recovery_count']);
+        $this->assertCount(4, $output['tool_results']);
+        $this->assertSame(
+            ['checkpoint-a', 'checkpoint-b', 'post-snapshot', 'continued'],
+            array_column($output['tool_results'], 'stdout'),
+        );
     }
 
     public function test_recovery_fails_when_a_replayed_completion_has_a_different_outcome(): void

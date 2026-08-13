@@ -7,13 +7,13 @@ of application-specific workflow code.
 
 ## Install
 
-The current release is `2.0.0-rc.8`, aligned with the Durable Workflow 2.0
+The current release is `2.0.0-rc.9`, aligned with the Durable Workflow 2.0
 prerelease train. While the Durable Workflow 2.0 packages are prereleases,
 require both packages with explicit RC stability flags in the same Composer
 invocation:
 
 ```bash
-composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.8@RC
+composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.9@RC
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 
@@ -55,6 +55,13 @@ recorded, and the remaining snapshot is deleted during finalization. Set
 `retainLatestSnapshot: true` only when the caller accepts ownership of the final
 checkpoint and its eventual deletion; a retained ID is returned as
 `latest_snapshot` after successful completion.
+
+For deterministic development and test recovery checks, local-provider callers
+may pass `injectLossAfterNCalls` as the final workflow argument. The workflow
+records a stable lifecycle operation at that completed-call boundary, removes
+the active local sandbox, and enters the same recovery path used for real loss.
+The injection is never a tool result and is never added to the post-snapshot
+journal. Production providers reject this boundary.
 
 ## Providers
 

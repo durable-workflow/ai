@@ -58,6 +58,14 @@ the retry recovers its ID instead of creating an anonymous orphan. A new
 snapshot resets the journal because its state is now in the provider checkpoint.
 Recovery is bounded to three replacement attempts.
 
+The local provider also supports a workflow-level development/test loss
+injection. Its trigger identity is derived from the workflow run and completed
+call count, so workflow replay and activity retry reach the same boundary. The
+injection destroys the active local sandbox as an idempotent lifecycle activity
+and is consumed once by the workflow. It is not dispatched as a tool call, does
+not appear in `tool_results`, and cannot enter the reconstruction journal.
+Completed post-snapshot tool calls remain journaled and replayed normally.
+
 ## Snapshot ownership and retention
 
 Snapshots created by `SandboxAgentWorkflow` are workflow-owned by default. The

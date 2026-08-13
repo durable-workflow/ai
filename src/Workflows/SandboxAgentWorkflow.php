@@ -7,6 +7,7 @@ namespace DurableWorkflow\AI\Workflows;
 use DurableWorkflow\AI\Activities\DeleteSnapshotActivity;
 use DurableWorkflow\AI\Activities\DestroySandboxActivity;
 use DurableWorkflow\AI\Activities\DispatchToolCallActivity;
+use DurableWorkflow\AI\Activities\InjectSandboxLossActivity;
 use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
 use DurableWorkflow\AI\Activities\RestoreSandboxActivity;
 use DurableWorkflow\AI\Activities\ResumeSandboxActivity;
@@ -47,14 +48,17 @@ final class SandboxAgentWorkflow extends Workflow
         bool $suspendBetweenCalls = false,
         array $options = [],
         bool $retainLatestSnapshot = false,
+        ?int $injectLossAfterNCalls = null,
     ): array {
         $preparedCalls = $this->prepareCalls($toolCalls);
+        $this->assertLossInjectionBoundary($injectLossAfterNCalls, count($preparedCalls));
         $handle = activity(ProvisionSandboxActivity::class, $provider, $options);
         $providerName = SandboxHandle::fromArray($handle)->provider;
         $results = [];
         $completedSinceSnapshot = [];
         $latestSnapshot = null;
         $recoveryCount = 0;
+        $lossInjected = false;
 
         try {
             $index = 0;
@@ -132,6 +136,23 @@ final class SandboxAgentWorkflow extends Workflow
                     }
                 }
 
+                if (! $lossInjected && $injectLossAfterNCalls === $index) {
+                    activity(
+                        InjectSandboxLossActivity::class,
+                        $handle,
+                        SandboxOperationId::forWorkflowLossInjection($this->runId(), $index),
+                    );
+                    $lossInjected = true;
+
+                    [$handle, $recoveryCount] = $this->recoverAndReconstruct(
+                        $latestSnapshot,
+                        $providerName,
+                        $options,
+                        $completedSinceSnapshot,
+                        $recoveryCount,
+                    );
+                }
+
                 if ($suspendBetweenCalls && $index < count($preparedCalls)) {
                     [$handle, $recoveryCount] = $this->suspendAndResume(
                         $handle,
@@ -197,6 +218,19 @@ final class SandboxAgentWorkflow extends Workflow
         }
 
         return $prepared;
+    }
+
+    private function assertLossInjectionBoundary(?int $afterCalls, int $callCount): void
+    {
+        if ($afterCalls === null) {
+            return;
+        }
+
+        if ($afterCalls < 1 || $afterCalls > $callCount) {
+            throw new InvalidArgumentException(
+                "Sandbox loss injection must follow one of the {$callCount} configured tool calls.",
+            );
+        }
     }
 
     /**

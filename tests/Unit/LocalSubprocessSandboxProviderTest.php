@@ -6,7 +6,6 @@ namespace DurableWorkflow\AI\Tests\Unit;
 
 use DurableWorkflow\AI\Contracts\V1\DeliveryGuarantee;
 use DurableWorkflow\AI\Contracts\V1\SandboxCapability;
-use DurableWorkflow\AI\Exceptions\SandboxGoneException;
 use DurableWorkflow\AI\Exceptions\UnsupportedSandboxCapabilityException;
 use DurableWorkflow\AI\Providers\LocalSubprocessSandboxProvider;
 use DurableWorkflow\AI\SandboxToolCall;
@@ -100,19 +99,25 @@ final class LocalSubprocessSandboxProviderTest extends TestCase
         $this->provider->suspend($this->provider->provision());
     }
 
-    public function test_eviction_makes_the_next_operation_report_sandbox_loss(): void
+    public function test_tool_dispatch_cannot_inject_destructive_sandbox_loss(): void
     {
         $handle = $this->provider->provision();
-        $this->provider->execute(
+        $result = $this->provider->execute(
             $handle,
             new SandboxToolCall('evict-1', 'evict'),
         );
 
-        $this->expectException(SandboxGoneException::class);
-        $this->provider->execute(
+        $write = $this->provider->execute(
             $handle,
-            new SandboxToolCall('read-after-evict', 'read_file', ['path' => 'missing']),
+            new SandboxToolCall('write-after-evict', 'write_file', [
+                'path' => 'state.txt',
+                'contents' => 'still present',
+            ]),
         );
+
+        $this->assertSame(1, $result->exitCode);
+        $this->assertSame('Unsupported tool type: evict', $result->stderr);
+        $this->assertTrue($write->succeeded());
     }
 
     public function test_path_traversal_is_rejected(): void

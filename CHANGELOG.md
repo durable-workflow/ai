@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-rc.9
+
+- Add deterministic local loss injection outside tool dispatch so recovery
+  demonstrations cannot journal and replay a destructive injection effect.
+
 ## 2.0.0-rc.8
 
 - Reconcile snapshot creation retries by a deterministic workflow operation ID

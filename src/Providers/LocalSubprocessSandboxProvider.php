@@ -100,7 +100,6 @@ final class LocalSubprocessSandboxProvider implements SnapshotReconcilingSandbox
             'shell' => $this->runShell($workspace, $call),
             'write_file' => $this->writeFile($workspace, $call),
             'read_file' => $this->readFile($workspace, $call),
-            'evict' => $this->evict($handle, $call),
             default => new SandboxToolResult(
                 exitCode: 1,
                 stderr: "Unsupported tool type: {$call->type}",
@@ -294,18 +293,6 @@ final class LocalSubprocessSandboxProvider implements SnapshotReconcilingSandbox
         return $contents === false
             ? new SandboxToolResult(exitCode: 1, stderr: "Failed to read {$relative}")
             : new SandboxToolResult(exitCode: 0, stdout: $contents);
-    }
-
-    private function evict(SandboxHandle $handle, SandboxToolCall $call): SandboxToolResult
-    {
-        $workspace = $this->requireWorkspace($handle);
-        $this->deleteRecursive($workspace);
-        @unlink($this->leasePath($handle->id));
-
-        return new SandboxToolResult(
-            exitCode: 0,
-            stdout: "evicted {$handle->id}: ".(string) ($call->args['reason'] ?? 'local sandbox evicted'),
-        );
     }
 
     private function requireWorkspace(SandboxHandle $handle): string

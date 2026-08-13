@@ -102,5 +102,16 @@ final class PublicContractTest extends TestCase
         $this->assertSame($snapshot, SandboxOperationId::forWorkflowSnapshot('run-123', 4));
         $this->assertNotSame($snapshot, SandboxOperationId::forWorkflowSnapshot('run-123', 5));
         $this->assertNotSame($first, $snapshot);
+
+        $lossInjection = SandboxOperationId::forWorkflowLossInjection('run-123', 4);
+        $this->assertSame(
+            $lossInjection,
+            SandboxOperationId::forWorkflowLossInjection('run-123', 4),
+        );
+        $this->assertNotSame(
+            $lossInjection,
+            SandboxOperationId::forWorkflowLossInjection('run-123', 5),
+        );
+        $this->assertNotSame($snapshot, $lossInjection);
     }
 }
