@@ -102,7 +102,7 @@ jobs:
         run: composer test
 
   composer-resolver-smoke:
-    name: Composer prerelease resolver smoke
+    name: Composer public source resolver smoke
     if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

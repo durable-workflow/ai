@@ -7,18 +7,21 @@ of application-specific workflow code.
 
 ## Install
 
-The current release is `2.0.0-rc.9`, aligned with the Durable Workflow 2.0
-prerelease train. While the Durable Workflow 2.0 packages are prereleases,
-require both packages with explicit RC stability flags in the same Composer
-invocation:
+The current development line is distributed from the public `main` branch as
+`dev-main`. The latest tagged release remains `2.0.0-rc.8`; changes since that
+release are source-only until the next prerelease is published. While the
+Durable Workflow 2.0 packages are prereleases, require both packages in the
+same Composer invocation:
 
 ```bash
-composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:2.0.0-rc.9@RC
+composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:dev-main
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 
 Composer applies stability flags only to packages required by the root project,
-so the prerelease runtime must be listed explicitly.
+so the prerelease runtime must be listed explicitly. The explicit `dev-main`
+constraint allows the source package to resolve without changing the root
+project's default `stable` minimum stability.
 
 This two-package command is only needed for the prerelease. Once stable 2.0 is
 available, installation will return to the ordinary one-package command:

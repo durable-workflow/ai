@@ -39,7 +39,7 @@
     },
     "extra": {
         "durable-workflow": {
-            "product-train": "2.0.0-rc.9",
+            "product-train": "dev-main",
             "contracts": {
                 "sandbox-provider": "1.0",
                 "sandbox-provider.snapshot-deletion": "1.0",
