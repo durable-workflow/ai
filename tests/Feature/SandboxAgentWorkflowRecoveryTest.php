@@ -18,6 +18,7 @@ use DurableWorkflow\AI\SandboxOperationId;
 use DurableWorkflow\AI\Tests\TestCase;
 use DurableWorkflow\AI\Workflows\SandboxAgentWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Workflow\Exceptions\NonRetryableException;
 use Workflow\V2\Models\WorkflowFailure;
 use Workflow\V2\WorkflowStub;
@@ -25,6 +26,74 @@ use Workflow\V2\WorkflowStub;
 final class SandboxAgentWorkflowRecoveryTest extends TestCase
 {
     use RefreshDatabase;
+
+    #[DataProvider('nonLocalLossInjectionProviders')]
+    public function test_non_local_loss_injection_fails_before_any_sandbox_effect(?string $provider): void
+    {
+        WorkflowStub::fake();
+        $events = [];
+
+        if ($provider === null) {
+            $this->app['config']->set('durable-workflow-ai.default', 'e2b');
+        }
+
+        WorkflowStub::mock(ProvisionSandboxActivity::class, function () use (&$events): array {
+            $events[] = 'provision';
+
+            return $this->handle('production-sandbox', 'e2b');
+        });
+        WorkflowStub::mock(DispatchToolCallActivity::class, function () use (&$events): array {
+            $events[] = 'dispatch';
+
+            return ['exit_code' => 0, 'stdout' => 'partial effect', 'stderr' => ''];
+        });
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function () use (&$events): string {
+            $events[] = 'snapshot';
+
+            return 'partial-snapshot';
+        });
+        WorkflowStub::mock(InjectSandboxLossActivity::class, function () use (&$events): never {
+            $events[] = 'inject';
+
+            throw new NonRetryableException(
+                'Sandbox loss injection is development/test-only and requires the [local] provider; [e2b] was selected.',
+            );
+        });
+        WorkflowStub::mock(DestroySandboxActivity::class, function () use (&$events): bool {
+            $events[] = 'destroy';
+
+            return true;
+        });
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([
+            ['type' => 'shell', 'args' => ['command' => 'must-not-run']],
+        ], $provider, 1, false, [], false, 1);
+        WorkflowStub::runReadyTasks();
+
+        $this->assertSame([], $events);
+        $this->assertTrue($workflow->refresh()->failed());
+
+        $failure = WorkflowFailure::query()
+            ->where('workflow_run_id', $workflow->runId())
+            ->where('source_kind', 'workflow_run')
+            ->firstOrFail();
+        $failureMessage = $failure->getAttribute('message');
+        $this->assertIsString($failureMessage);
+        $this->assertStringContainsString(
+            'requires the [local] provider; [e2b] was selected',
+            $failureMessage,
+        );
+    }
+
+    /** @return array<string, array{string|null}> */
+    public static function nonLocalLossInjectionProviders(): array
+    {
+        return [
+            'explicit non-local provider' => ['e2b'],
+            'default non-local provider' => [null],
+        ];
+    }
 
     public function test_missing_e2b_file_result_never_provisions_or_restores_a_replacement(): void
     {

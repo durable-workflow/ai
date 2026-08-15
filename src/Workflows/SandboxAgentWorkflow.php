@@ -9,6 +9,7 @@ use DurableWorkflow\AI\Activities\DestroySandboxActivity;
 use DurableWorkflow\AI\Activities\DispatchToolCallActivity;
 use DurableWorkflow\AI\Activities\InjectSandboxLossActivity;
 use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
+use DurableWorkflow\AI\Activities\ResolveSandboxProviderActivity;
 use DurableWorkflow\AI\Activities\RestoreSandboxActivity;
 use DurableWorkflow\AI\Activities\ResumeSandboxActivity;
 use DurableWorkflow\AI\Activities\SnapshotSandboxActivity;
@@ -52,6 +53,7 @@ final class SandboxAgentWorkflow extends Workflow
     ): array {
         $preparedCalls = $this->prepareCalls($toolCalls);
         $this->assertLossInjectionBoundary($injectLossAfterNCalls, count($preparedCalls));
+        $provider = $this->resolveLossInjectionProvider($injectLossAfterNCalls, $provider);
         $handle = activity(ProvisionSandboxActivity::class, $provider, $options);
         $providerName = SandboxHandle::fromArray($handle)->provider;
         $results = [];
@@ -238,6 +240,35 @@ final class SandboxAgentWorkflow extends Workflow
                 "Sandbox loss injection must follow one of the {$callCount} configured tool calls.",
             );
         }
+    }
+
+    private function resolveLossInjectionProvider(?int $afterCalls, ?string $provider): ?string
+    {
+        if ($afterCalls === null) {
+            return $provider;
+        }
+
+        // An explicit non-local selection is already fully resolved for this
+        // development-only boundary, so reject it without scheduling work.
+        if ($provider !== null) {
+            $this->assertLossInjectionProvider($provider);
+        }
+
+        $resolvedProvider = activity(ResolveSandboxProviderActivity::class, $provider);
+        $this->assertLossInjectionProvider($resolvedProvider);
+
+        return $resolvedProvider;
+    }
+
+    private function assertLossInjectionProvider(string $provider): void
+    {
+        if ($provider === 'local') {
+            return;
+        }
+
+        throw new InvalidArgumentException(
+            "Sandbox loss injection is development/test-only and requires the [local] provider; [{$provider}] was selected.",
+        );
     }
 
     /**
