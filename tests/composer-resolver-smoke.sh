@@ -57,11 +57,25 @@ if (($ai["version"] ?? null) !== "dev-main") {
 
 $source = $ai["source"] ?? [];
 $sourceReference = $source["reference"] ?? "";
+$expectedSourceReference = getenv("EXPECTED_AI_SOURCE_REFERENCE") ?: "";
 
 if (($source["type"] ?? null) !== "git"
     || ($source["url"] ?? null) !== "https://github.com/durable-workflow/ai.git"
     || preg_match("/^[0-9a-f]{40}$/D", $sourceReference) !== 1) {
     fail("Composer did not resolve durable-workflow/ai from its public Git source.");
+}
+
+if ($expectedSourceReference !== ""
+    && preg_match("/^[0-9a-f]{40}$/D", $expectedSourceReference) !== 1) {
+    fail("EXPECTED_AI_SOURCE_REFERENCE must be a full lowercase Git commit SHA.");
+}
+
+if ($expectedSourceReference !== "" && $sourceReference !== $expectedSourceReference) {
+    fail(sprintf(
+        "Composer resolved durable-workflow/ai at public source %s; expected landed main commit %s.",
+        $sourceReference,
+        $expectedSourceReference,
+    ));
 }
 
 if ($workflow === null) {

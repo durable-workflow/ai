@@ -119,7 +119,18 @@ jobs:
           coverage: none
           tools: composer:v2
 
-      - name: Resolve from a stable-default Composer root
+      - name: Resolve pull-request dependencies from a stable-default Composer root
+        if: ${{ github.event_name == 'pull_request' }}
+        run: tests/composer-resolver-smoke.sh
+
+      - name: Resolve the landed main commit from a stable-default Composer root
+        if: ${{ github.event_name == 'push' }}
+        env:
+          EXPECTED_AI_SOURCE_REFERENCE: ${{ github.sha }}
+        run: tests/composer-resolver-smoke.sh
+
+      - name: Resolve public dependencies from a stable-default Composer root
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: tests/composer-resolver-smoke.sh
 
   target-branch-qualification:
