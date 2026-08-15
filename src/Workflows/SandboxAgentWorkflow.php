@@ -25,6 +25,7 @@ use Workflow\V2\Exceptions\RestoredWorkflowException;
 use Workflow\V2\Workflow;
 
 use function Workflow\V2\activity;
+use function Workflow\V2\patched;
 
 /**
  * Reusable durable sandbox lifecycle workflow.
@@ -53,7 +54,11 @@ final class SandboxAgentWorkflow extends Workflow
     ): array {
         $preparedCalls = $this->prepareCalls($toolCalls);
         $this->assertLossInjectionBoundary($injectLossAfterNCalls, count($preparedCalls));
-        $provider = $this->resolveLossInjectionProvider($injectLossAfterNCalls, $provider);
+
+        if ($injectLossAfterNCalls !== null && patched('sandbox-loss-injection-provider-preflight')) {
+            $provider = $this->resolveLossInjectionProvider($injectLossAfterNCalls, $provider);
+        }
+
         $handle = activity(ProvisionSandboxActivity::class, $provider, $options);
         $providerName = SandboxHandle::fromArray($handle)->provider;
         $results = [];

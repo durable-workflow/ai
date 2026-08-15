@@ -9,6 +9,7 @@ use DurableWorkflow\AI\Activities\DestroySandboxActivity;
 use DurableWorkflow\AI\Activities\DispatchToolCallActivity;
 use DurableWorkflow\AI\Activities\InjectSandboxLossActivity;
 use DurableWorkflow\AI\Activities\ProvisionSandboxActivity;
+use DurableWorkflow\AI\Activities\ResolveSandboxProviderActivity;
 use DurableWorkflow\AI\Activities\RestoreSandboxActivity;
 use DurableWorkflow\AI\Activities\ResumeSandboxActivity;
 use DurableWorkflow\AI\Activities\SnapshotSandboxActivity;
@@ -20,7 +21,12 @@ use DurableWorkflow\AI\Workflows\SandboxAgentWorkflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Workflow\Exceptions\NonRetryableException;
+use Workflow\Serializers\Serializer;
+use Workflow\V2\Enums\HistoryEventType;
 use Workflow\V2\Models\WorkflowFailure;
+use Workflow\V2\Models\WorkflowHistoryEvent;
+use Workflow\V2\Models\WorkflowRun;
+use Workflow\V2\Models\WorkflowTask;
 use Workflow\V2\WorkflowStub;
 
 final class SandboxAgentWorkflowRecoveryTest extends TestCase
@@ -93,6 +99,97 @@ final class SandboxAgentWorkflowRecoveryTest extends TestCase
             'explicit non-local provider' => ['e2b'],
             'default non-local provider' => [null],
         ];
+    }
+
+    public function test_provisioning_first_loss_injection_history_replays_under_the_current_definition(): void
+    {
+        $this->app['config']->set('workflows.v2.task_dispatch_mode', 'poll');
+
+        $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+        $workflow->start([
+            ['type' => 'shell', 'args' => ['command' => 'checkpoint']],
+        ], null, 1, false, [], false, 1);
+
+        /** @var WorkflowHistoryEvent $started */
+        $started = WorkflowHistoryEvent::query()
+            ->where('workflow_run_id', $workflow->runId())
+            ->where('event_type', HistoryEventType::WorkflowStarted->value)
+            ->firstOrFail();
+        $startedPayload = $started->getAttribute('payload');
+        $this->assertIsArray($startedPayload);
+        // The provisioning-first definition has a different fingerprint, so
+        // the newly introduced patch resolves to its legacy branch on replay.
+        $startedPayload['workflow_definition_fingerprint'] = 'sha256:'.str_repeat('0', 64);
+        $started->forceFill(['payload' => $startedPayload])->save();
+
+        WorkflowHistoryEvent::query()->create([
+            'workflow_run_id' => $workflow->runId(),
+            'sequence' => 3,
+            'event_type' => HistoryEventType::ActivityCompleted->value,
+            'payload' => [
+                'sequence' => 1,
+                'activity_class' => ProvisionSandboxActivity::class,
+                'activity_type' => ProvisionSandboxActivity::class,
+                'result' => Serializer::serializeWithCodec('avro', $this->handle('original', 'local')),
+                'payload_codec' => 'avro',
+            ],
+            'recorded_at' => now(),
+        ]);
+        WorkflowRun::query()->whereKey($workflow->runId())->update([
+            'last_history_sequence' => 3,
+        ]);
+        WorkflowTask::query()
+            ->where('workflow_run_id', $workflow->runId())
+            ->update(['available_at' => now()->subSecond()]);
+
+        WorkflowStub::fake();
+        $events = [];
+
+        WorkflowStub::mock(DispatchToolCallActivity::class, function ($context, array $handle) use (&$events): array {
+            $events[] = 'dispatch:'.$handle['id'];
+
+            return ['exit_code' => 0, 'stdout' => 'checkpoint', 'stderr' => ''];
+        });
+        WorkflowStub::mock(SnapshotSandboxActivity::class, function ($context, array $handle) use (&$events): string {
+            $events[] = 'snapshot:'.$handle['id'];
+
+            return 'snapshot-1';
+        });
+        WorkflowStub::mock(InjectSandboxLossActivity::class, function ($context, array $handle) use (&$events): string {
+            $events[] = 'inject:'.$handle['id'];
+
+            return 'loss-injected';
+        });
+        WorkflowStub::mock(RestoreSandboxActivity::class, function ($context, string $snapshotId) use (&$events): array {
+            $events[] = 'restore:'.$snapshotId;
+
+            return $this->handle('restored', 'local');
+        });
+        WorkflowStub::mock(DeleteSnapshotActivity::class, true);
+        WorkflowStub::mock(DestroySandboxActivity::class, true);
+
+        WorkflowStub::runReadyTasks();
+
+        $workflow->refresh();
+        $failureMessage = WorkflowFailure::query()
+            ->where('workflow_run_id', $workflow->runId())
+            ->latest('created_at')
+            ->value('message');
+        $this->assertTrue(
+            $workflow->completed(),
+            is_string($failureMessage) ? $failureMessage : 'The replayed workflow did not complete.',
+        );
+        $this->assertSame([
+            'dispatch:original',
+            'snapshot:original',
+            'inject:original',
+            'restore:snapshot-1',
+        ], $events);
+        $this->assertSame(1, $workflow->output()['recovery_count']);
+        WorkflowStub::assertNotDispatched(ResolveSandboxProviderActivity::class);
+        WorkflowStub::assertNotDispatched(ProvisionSandboxActivity::class);
+        WorkflowStub::assertDispatchedTimes(InjectSandboxLossActivity::class, 1);
+        WorkflowStub::assertDispatchedTimes(RestoreSandboxActivity::class, 1);
     }
 
     public function test_missing_e2b_file_result_never_provisions_or_restores_a_replacement(): void
