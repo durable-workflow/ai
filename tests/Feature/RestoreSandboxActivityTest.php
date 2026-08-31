@@ -10,8 +10,6 @@ use DurableWorkflow\AI\Laravel\SandboxManager;
 use DurableWorkflow\AI\Tests\Fakes\StubSandboxProvider;
 use DurableWorkflow\AI\Tests\TestCase;
 use RuntimeException;
-use Workflow\V2\Models\ActivityExecution;
-use Workflow\V2\Models\WorkflowRun;
 
 final class RestoreSandboxActivityTest extends TestCase
 {
@@ -25,7 +23,7 @@ final class RestoreSandboxActivityTest extends TestCase
             'stub',
             static fn ($container, array $config): StubSandboxProvider => $provider,
         );
-        $activity = new RestoreSandboxActivity(new ActivityExecution, new WorkflowRun);
+        $activity = new RestoreSandboxActivity;
 
         try {
             $activity->handle('snapshot-1', 'stub');
@@ -48,7 +46,7 @@ final class RestoreSandboxActivityTest extends TestCase
             'selected',
             static fn ($container, array $config): StubSandboxProvider => $provider,
         );
-        $activity = new RestoreSandboxActivity(new ActivityExecution, new WorkflowRun);
+        $activity = new RestoreSandboxActivity;
 
         try {
             $activity->handle('snapshot-1', 'selected');

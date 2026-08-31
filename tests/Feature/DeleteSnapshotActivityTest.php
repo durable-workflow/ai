@@ -11,8 +11,6 @@ use DurableWorkflow\AI\Laravel\SandboxManager;
 use DurableWorkflow\AI\Tests\Fakes\Rc1SandboxProvider;
 use DurableWorkflow\AI\Tests\Fakes\StubSandboxProvider;
 use DurableWorkflow\AI\Tests\TestCase;
-use Workflow\V2\Models\ActivityExecution;
-use Workflow\V2\Models\WorkflowRun;
 use Workflow\V2\Support\ActivityRetryPolicy;
 
 final class DeleteSnapshotActivityTest extends TestCase
@@ -24,7 +22,7 @@ final class DeleteSnapshotActivityTest extends TestCase
             'stub',
             static fn ($container, array $config): StubSandboxProvider => $provider,
         );
-        $activity = new DeleteSnapshotActivity(new ActivityExecution, new WorkflowRun);
+        $activity = new DeleteSnapshotActivity;
 
         $activity->handle('snapshot-1', 'stub');
         $activity->handle('snapshot-1', 'stub');
@@ -44,7 +42,7 @@ final class DeleteSnapshotActivityTest extends TestCase
             static fn ($container, array $config): Rc1SandboxProvider => $provider,
         );
 
-        $activity = new DeleteSnapshotActivity(new ActivityExecution, new WorkflowRun);
+        $activity = new DeleteSnapshotActivity;
 
         $this->expectException(UnsupportedSandboxCapabilityException::class);
         $this->expectExceptionMessage('does not support [snapshot_deletion]; the operation was not attempted');

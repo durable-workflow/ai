@@ -10,8 +10,6 @@ use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\Tests\Fakes\StubSandboxProvider;
 use DurableWorkflow\AI\Tests\TestCase;
 use Workflow\Exceptions\NonRetryableException;
-use Workflow\V2\Models\ActivityExecution;
-use Workflow\V2\Models\WorkflowRun;
 use Workflow\V2\Support\ActivityRetryPolicy;
 
 final class InjectSandboxLossActivityTest extends TestCase
@@ -23,7 +21,7 @@ final class InjectSandboxLossActivityTest extends TestCase
             'local',
             static fn ($container, array $config): StubSandboxProvider => $provider,
         );
-        $activity = new InjectSandboxLossActivity(new ActivityExecution, new WorkflowRun);
+        $activity = new InjectSandboxLossActivity;
         $handle = (new SandboxHandle('sandbox-1', 'local'))->toArray();
 
         $first = $activity->handle($handle, 'loss-injection-operation-1');
@@ -37,7 +35,7 @@ final class InjectSandboxLossActivityTest extends TestCase
 
     public function test_injection_rejects_non_local_providers_before_destroy(): void
     {
-        $activity = new InjectSandboxLossActivity(new ActivityExecution, new WorkflowRun);
+        $activity = new InjectSandboxLossActivity;
 
         $this->expectException(NonRetryableException::class);
         $this->expectExceptionMessage('requires the [local] provider; [e2b] was selected');

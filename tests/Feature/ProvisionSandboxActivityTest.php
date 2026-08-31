@@ -16,8 +16,6 @@ use Illuminate\Http\Client\Factory;
 use InvalidArgumentException;
 use RuntimeException;
 use Workflow\Exceptions\NonRetryableException;
-use Workflow\V2\Models\ActivityExecution;
-use Workflow\V2\Models\WorkflowRun;
 
 final class ProvisionSandboxActivityTest extends TestCase
 {
@@ -167,7 +165,7 @@ final class ProvisionSandboxActivityTest extends TestCase
 
     private function activity(): ProvisionSandboxActivity
     {
-        return new ProvisionSandboxActivity(new ActivityExecution, new WorkflowRun);
+        return new ProvisionSandboxActivity;
     }
 
     private function extendManager(string $name, StubSandboxProvider $provider): void

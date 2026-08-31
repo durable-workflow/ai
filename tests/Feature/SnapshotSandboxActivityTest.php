@@ -9,8 +9,6 @@ use DurableWorkflow\AI\Laravel\SandboxManager;
 use DurableWorkflow\AI\SandboxHandle;
 use DurableWorkflow\AI\Tests\Fakes\StubSandboxProvider;
 use DurableWorkflow\AI\Tests\TestCase;
-use Workflow\V2\Models\ActivityExecution;
-use Workflow\V2\Models\WorkflowRun;
 
 final class SnapshotSandboxActivityTest extends TestCase
 {
@@ -21,7 +19,7 @@ final class SnapshotSandboxActivityTest extends TestCase
             'stub',
             static fn ($container, array $config): StubSandboxProvider => $provider,
         );
-        $activity = new SnapshotSandboxActivity(new ActivityExecution, new WorkflowRun);
+        $activity = new SnapshotSandboxActivity;
 
         $snapshot = $activity->handle(
             (new SandboxHandle('sandbox-1', 'stub'))->toArray(),
