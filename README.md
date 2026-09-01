@@ -1,102 +1,112 @@
 # Durable Workflow AI
 
-`durable-workflow/ai` is the reusable sandbox lifecycle package for Durable
-Workflow agents. It keeps provisioning, tool dispatch, snapshots, recovery,
-suspend/resume, leases, and cleanup behind versioned provider contracts instead
-of application-specific workflow code.
+<p align="center">
+  <a href="https://github.com/durable-workflow/ai/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/durable-workflow/ai/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://packagist.org/packages/durable-workflow/ai"><img src="https://img.shields.io/packagist/v/durable-workflow/ai.svg?include_prereleases" alt="Packagist version"></a>
+  <a href="https://packagist.org/packages/durable-workflow/ai"><img src="https://img.shields.io/packagist/php-v/durable-workflow/ai.svg" alt="Supported PHP versions"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/durable-workflow/ai" alt="MIT license"></a>
+</p>
+
+Durable sandbox orchestration for AI agents built on
+[Durable Workflow](https://durable-workflow.com/). The package provides a
+reusable Laravel workflow for provisioning a sandbox, dispatching tool calls,
+checkpointing state, recovering from sandbox loss, and cleaning up resources.
+Provider-specific APIs stay behind versioned contracts.
+
+The package is currently published on the 2.0 release-candidate channel. The
+Durable Workflow runtime it uses is stable 2.x.
 
 ## Install
 
-The current development line is distributed from the public `main` branch as
-`dev-main`. The latest tagged release remains `2.0.0-rc.8`; changes since that
-release are source-only until the next prerelease is published. While the
-Durable Workflow 2.0 packages are prereleases, require both packages in the
-same Composer invocation:
-
 ```bash
-composer require durable-workflow/workflow:^2.0@RC durable-workflow/ai:dev-main
+composer require durable-workflow/ai:^2.0@RC
 php artisan vendor:publish --tag=durable-workflow-ai-config
 ```
 
-Composer applies stability flags only to packages required by the root project,
-so the prerelease runtime must be listed explicitly. The explicit `dev-main`
-constraint allows the source package to resolve without changing the root
-project's default `stable` minimum stability.
-
-This two-package command is only needed for the prerelease. Once stable 2.0 is
-available, installation will return to the ordinary one-package command:
-`composer require durable-workflow/ai`.
-
 Laravel discovers `DurableWorkflow\AI\Laravel\SandboxServiceProvider`
-automatically. The package requires Laravel 12 or later and the Durable Workflow
-v2 runtime.
+automatically. The package requires PHP 8.2 or newer, Laravel 12 or newer, and
+the embedded Durable Workflow runtime.
 
-## Run a sandbox workflow
+## Run A Sandbox Workflow
 
 ```php
 use DurableWorkflow\AI\Workflows\SandboxAgentWorkflow;
 use Workflow\V2\WorkflowStub;
 
 $workflow = WorkflowStub::make(SandboxAgentWorkflow::class);
+
 $workflow->start(
     toolCalls: [
-        ['type' => 'write_file', 'args' => ['path' => 'README.md', 'contents' => "# Agent workspace\n"]],
+        [
+            'type' => 'write_file',
+            'args' => [
+                'path' => 'README.md',
+                'contents' => "# Agent workspace\n",
+            ],
+        ],
         ['type' => 'shell', 'args' => ['command' => 'ls -la']],
     ],
     provider: 'e2b',
     snapshotEveryNCalls: 10,
-    retainLatestSnapshot: false,
 );
 ```
 
-The workflow attaches a stable durable operation ID to every call. It snapshots
-at the requested interval and, after sandbox loss, restores the newest snapshot
-and replays every completed later call in order before continuing. This includes
-nonzero exits because a failed command can still mutate workspace state.
-Superseded snapshots are deleted only after their replacement is durably
-recorded, and the remaining snapshot is deleted during finalization. Set
-`retainLatestSnapshot: true` only when the caller accepts ownership of the final
-checkpoint and its eventual deletion. Ownership transfers when a successful
-result returns the ID as `latest_snapshot`; a failed workflow deletes the final
-checkpoint because it cannot expose that result.
+Configure E2B before starting the application worker:
 
-For deterministic development and test recovery checks, local-provider callers
-may pass `injectLossAfterNCalls` as the final workflow argument. The workflow
-records a stable lifecycle operation at that completed-call boundary, removes
-the active local sandbox, and enters the same recovery path used for real loss.
-The injection is never a tool result and is never added to the post-snapshot
-journal. Production providers reject this boundary.
+```dotenv
+DURABLE_AI_SANDBOX_DRIVER=e2b
+E2B_API_KEY=
+E2B_TEMPLATE_ID=base
+```
+
+```bash
+php artisan queue:work
+```
+
+Every tool call receives a stable operation ID. The workflow can restore its
+latest snapshot after sandbox loss and replay every completed later call before
+continuing. Success, cancellation, and failure all enter the cleanup path;
+provider leases remain the final cleanup bound when deletion cannot complete.
 
 ## Providers
 
-The package includes:
+| Provider | Intended use | Snapshot recovery | Suspend and resume |
+| --- | --- | --- | --- |
+| `e2b` | Remote agent sandboxes | Yes | No |
+| `local` | Development and deterministic tests | Yes | Yes |
+| Custom | Any adapter implementing the versioned provider contract | Capability-dependent | Capability-dependent |
 
-- `e2b`: an HTTP adapter for E2B's documented management, filesystem, and
-  Connect process APIs. Configure `E2B_API_KEY` and `E2B_TEMPLATE_ID`. E2B
-  suspend/resume is intentionally unavailable because its running timeout does
-  not bound the lifetime of a paused sandbox.
-- `local`: a subprocess workspace for development and tests. It runs commands
-  with the worker's own privileges. It is not a security isolation boundary and
-  must never execute untrusted code.
+The local provider runs subprocesses with the application worker's privileges.
+It is not a security boundary and must not execute untrusted code.
 
-Each provider publishes a machine-readable
-`DurableWorkflow\AI\Contracts\V1\ProviderCapabilities` value. Snapshot,
-restore, snapshot deletion, suspend, resume, operation deduplication, lease
-reconciliation, cleanup, and delivery guarantees are explicit. Calling an
-unsupported lifecycle method throws `UnsupportedSandboxCapabilityException`; it
-never silently succeeds.
+See the [provider-author guide](docs/provider-author-guide.md) to register E2B,
+Modal, Daytona, Kubernetes, or another sandbox backend without changing workflow
+code.
 
-The base `DurableWorkflow\AI\Contracts\V1\SandboxProvider` interface retains
-its original 1.0 method boundary. Providers that advertise snapshot deletion
-also implement the versioned
-`DurableWorkflow\AI\Contracts\V1\SnapshotDeletingSandboxProvider` extension.
-Providers that can create or discover one snapshot for a repeated operation ID
-implement the additive `SnapshotReconcilingSandboxProvider` extension.
+## Guarantees
 
-See [delivery and recovery guarantees](docs/delivery-and-recovery.md) for the
-failure contract and [the provider-author guide](docs/provider-author-guide.md)
-for implementing and registering an adapter.
+The package makes effect delivery, snapshot ownership, recovery, leases, and
+cleanup behavior explicit. Built-in providers currently advertise
+at-least-once effects because neither remote HTTP execution nor a local process
+can atomically commit an arbitrary tool effect with a Durable Workflow
+acknowledgement.
+
+Read the [delivery and recovery guarantees](docs/delivery-and-recovery.md) for
+the full contract, including operation deduplication, checkpoint replacement,
+post-snapshot reconstruction, and retained-snapshot ownership.
+
+## Development
+
+```bash
+composer install
+composer format
+composer stan
+composer test
+```
+
+Shared contribution, security, and release guidance lives in the
+[Durable Workflow organization guide](https://github.com/durable-workflow/.github/blob/main/AGENTS.md).
 
 ## License
 
-MIT
+Durable Workflow AI is open-source software licensed under the [MIT license](LICENSE).

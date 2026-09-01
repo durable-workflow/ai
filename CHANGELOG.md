@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (`dev-main`)
+## Unreleased
 
 - Add deterministic local loss injection outside tool dispatch so recovery
   demonstrations cannot journal and replay a destructive injection effect.

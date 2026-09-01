@@ -1,11 +1,14 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
     "name": "durable-workflow/ai",
-    "description": "Durable sandbox orchestration contracts and providers for AI agents.",
+    "description": "Durable sandbox lifecycle orchestration for AI agents.",
     "type": "library",
+    "homepage": "https://durable-workflow.com/docs/ai-agent-workflow-engine/",
     "license": "MIT",
     "keywords": [
+        "ai-agents",
         "agents",
+        "durable-execution",
         "durable-workflow",
         "laravel",
         "sandbox",
@@ -28,7 +31,7 @@
     },
     "require": {
         "php": "^8.2",
-        "durable-workflow/workflow": "^2.0@RC",
+        "durable-workflow/workflow": "^2.0",
         "laravel/framework": "^12.61.1|^13.0"
     },
     "require-dev": {
@@ -39,7 +42,6 @@
     },
     "extra": {
         "durable-workflow": {
-            "product-train": "dev-main",
             "contracts": {
                 "sandbox-provider": "1.0",
                 "sandbox-provider.snapshot-deletion": "1.0",

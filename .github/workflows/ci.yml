@@ -13,7 +13,6 @@ permissions:
 jobs:
   action-policy:
     name: Central action policy preflight
-    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -43,7 +42,6 @@ jobs:
 
   test:
     name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }}
-    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -101,70 +99,20 @@ jobs:
       - name: Run tests
         run: composer test
 
-  composer-resolver-smoke:
-    name: Composer public source resolver smoke
-    if: ${{ github.server_url == 'https://github.com' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
-        with:
-          persist-credentials: false
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # v2
-        with:
-          php-version: '8.4'
-          coverage: none
-          tools: composer:v2
-
-      - name: Resolve pull-request dependencies from a stable-default Composer root
-        if: ${{ github.event_name == 'pull_request' }}
-        run: tests/composer-resolver-smoke.sh
-
-      - name: Resolve the landed main commit from a stable-default Composer root
-        if: ${{ github.event_name == 'push' }}
-        env:
-          EXPECTED_AI_SOURCE_REFERENCE: ${{ github.sha }}
-        run: tests/composer-resolver-smoke.sh
-
-      - name: Resolve public dependencies from a stable-default Composer root
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: tests/composer-resolver-smoke.sh
-
   target-branch-qualification:
     name: Target branch qualification
     if: ${{ always() }}
-    needs: [action-policy, test, composer-resolver-smoke]
+    needs: [action-policy, test]
     runs-on: ubuntu-latest
     timeout-minutes: 3
 
     steps:
       - name: Require central action policy preflight
-        if: ${{ github.server_url == 'https://github.com' }}
         env:
           ACTION_POLICY_RESULT: ${{ needs.action-policy.result }}
         run: test "$ACTION_POLICY_RESULT" = success
 
       - name: Require complete GitHub qualification
-        if: ${{ github.server_url == 'https://github.com' }}
         env:
-          RESOLVER_SMOKE_RESULT: ${{ needs.composer-resolver-smoke.result }}
           TEST_RESULT: ${{ needs.test.result }}
-        run: |
-          test "$TEST_RESULT" = success
-          test "$RESOLVER_SMOKE_RESULT" = success
-
-      - name: Check out candidate source
-        if: ${{ github.server_url != 'https://github.com' }}
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
-        with:
-          persist-credentials: false
-
-      - name: Validate bounded candidate workload
-        if: ${{ github.server_url != 'https://github.com' }}
-        run: |
-          composer validate --strict --no-check-all
-          find src config tests -type f -name '*.php' -print0 \
-            | xargs -0 -n1 php -l
+        run: test "$TEST_RESULT" = success
