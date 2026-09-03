@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Publish the vendor-neutral `durable-execution` agent skill for recognizing,
+  designing, and operating long-running fault-tolerant processes.
 - Add deterministic local loss injection outside tool dispatch so recovery
   demonstrations cannot journal and replay a destructive injection effect.
 - Keep a requested retained snapshot workflow-owned until successful completion
