@@ -16,6 +16,18 @@ Provider-specific APIs stay behind versioned contracts.
 The package is currently published on the 2.0 release-candidate channel. The
 Durable Workflow runtime it uses is stable 2.x.
 
+## Agent Skill
+
+The repository also publishes the vendor-neutral
+[`durable-execution`](skills/durable-execution/SKILL.md) agent skill. It helps
+agents decide when durable orchestration is appropriate, design replay-safe
+workflows and retry-safe effects, and operate long-running processes. It does
+not require this PHP package or the Durable Workflow runtime.
+
+```bash
+npx skills add durable-workflow/ai --skill durable-execution
+```
+
 ## Install
 
 ```bash
