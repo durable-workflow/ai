@@ -106,9 +106,7 @@ final class E2bSandboxProvider implements SnapshotReconcilingSandboxProvider
             id: $id,
             provider: $this->name(),
             metadata: [
-                'template_id' => is_array($body)
-                    ? (string) ($body['templateID'] ?? $this->templateId)
-                    : $this->templateId,
+                'template_id' => (string) ($body['templateID'] ?? $this->templateId),
             ],
         );
     }

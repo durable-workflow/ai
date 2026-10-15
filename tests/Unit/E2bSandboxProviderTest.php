@@ -17,6 +17,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Throwable;
@@ -62,6 +63,44 @@ final class E2bSandboxProviderTest extends TestCase
                 && $request['timeout'] === 120
                 && $request['secure'] === true;
         });
+    }
+
+    #[DataProvider('invalidProvisionResponses')]
+    public function test_provision_refuses_a_response_without_a_sandbox_identity(string $body): void
+    {
+        $this->http->fake([
+            'https://api.e2b.app/sandboxes' => $this->http->response($body, 201, [
+                'Content-Type' => 'application/json',
+            ]),
+        ]);
+
+        $this->expectException(SandboxProvisionException::class);
+        $this->expectExceptionMessage('did not include sandboxID');
+        $this->provider->provision();
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidProvisionResponses(): array
+    {
+        return [
+            'null' => ['null'],
+            'scalar' => ['"unexpected"'],
+            'missing identity' => ['{"templateID":"coding-agent"}'],
+            'empty identity' => ['{"sandboxID":""}'],
+        ];
+    }
+
+    public function test_provision_retains_configured_template_when_response_omits_it(): void
+    {
+        $this->http->fake([
+            'https://api.e2b.app/sandboxes' => $this->http->response(['sandboxID' => 'sbx-default'], 201),
+        ]);
+
+        $handle = $this->provider->provision();
+
+        $this->assertSame('sbx-default', $handle->id);
+        $this->assertSame('coding-agent', $handle->metadata['template_id']);
+        $this->http->assertSentCount(1);
     }
 
     public function test_provision_keeps_rate_limits_and_server_failures_retryable(): void
