@@ -1,9 +1,8 @@
 # Durable Workflow AI
 
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=durable-workflow_ai&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=durable-workflow_ai)
-
 <p align="center">
   <a href="https://github.com/durable-workflow/ai/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/durable-workflow/ai/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=durable-workflow_ai"><img src="https://sonarcloud.io/api/project_badges/measure?project=durable-workflow_ai&amp;metric=alert_status" alt="Quality Gate"></a>
   <a href="https://packagist.org/packages/durable-workflow/ai"><img src="https://img.shields.io/packagist/v/durable-workflow/ai.svg?include_prereleases" alt="Packagist version"></a>
   <a href="https://packagist.org/packages/durable-workflow/ai"><img src="https://img.shields.io/packagist/php-v/durable-workflow/ai.svg" alt="Supported PHP versions"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/durable-workflow/ai" alt="MIT license"></a>
